@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MIMIC NLP | Clinical Intelligence</title>
+    <link rel="stylesheet" href="/frontend/style.css">
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>ICU Mortality Prediction</h1>
+        <p class="subtitle">Clinical NLP & Physiological Feature Analysis</p>
+    </header>
+
+    <section class="input-section">
+        <h3>Clinical Context</h3>
+        <label for="text" class="sr-only" style="display:none;">Clinical Observation Notes</label>
+        <textarea id="text" placeholder="Enter detailed patient clinical notes here..." autocomplete="off"></textarea>
+    </section>
+
+    <section class="input-section">
+        <h3>Patient Vital Signs & Labs</h3>
+        <div class="features">
+            <div class="input-group"><label for="f0">Age</label><input type="number" placeholder="Years" id="f0" autocomplete="off"></div>
+            <div class="input-group"><label for="f1">Gender</label><input type="number" placeholder="0=M, 1=F" id="f1" autocomplete="off"></div>
+            <div class="input-group"><label for="f2">Heart Rate</label><input type="number" placeholder="bpm" id="f2" autocomplete="off"></div>
+            <div class="input-group"><label for="f3">SBP</label><input type="number" placeholder="mmHg" id="f3" autocomplete="off"></div>
+            <div class="input-group"><label for="f4">DBP</label><input type="number" placeholder="mmHg" id="f4" autocomplete="off"></div>
+            <div class="input-group"><label for="f5">MBP</label><input type="number" placeholder="mmHg" id="f5" autocomplete="off"></div>
+            <div class="input-group"><label for="f6">SpO2</label><input type="number" placeholder="%" id="f6" autocomplete="off"></div>
+            
+            <div class="input-group"><label for="f7">Creatinine</label><input type="number" step="0.1" placeholder="mg/dL" id="f7" autocomplete="off"></div>
+            <div class="input-group"><label for="f8">Glucose</label><input type="number" step="1" placeholder="mg/dL" id="f8" autocomplete="off"></div>
+            <div class="input-group"><label for="f9">Hemoglobin</label><input type="number" step="0.1" placeholder="g/dL" id="f9" autocomplete="off"></div>
+        </div>
+    </section>
+
+    <button id="predictBtn">Generate Risk Assessment</button>
+
+    <div id="result"></div>
+</div>
+
+<script src="/frontend/script.js"></script>
+</body>
+</html>

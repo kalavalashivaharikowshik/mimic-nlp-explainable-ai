@@ -1,0 +1,295 @@
+/* ===========================================================
+   EXECUTIVE MEDICAL DASHBOARD - MASTER STYLESHEET 2026
+   Vibe: Clinical, Trustworthy, Ultra-Modern SaaS
+   ===========================================================
+*/
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+    /* Color System */
+    --brand-primary: #0062ff;
+    --brand-secondary: #7c3aed;
+    --brand-accent: #06b6d4;
+    
+    /* Surface Colors */
+    --surface-bg: #f3f4f6;
+    --surface-card: rgba(255, 255, 255, 0.88);
+    --surface-input: #ffffff;
+    
+    /* Text Colors */
+    --text-main: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    
+    /* UI States */
+    --risk-high-bg: linear-gradient(135deg, #fff1f2 0%, #fee2e2 100%);
+    --risk-high-text: #be123c;
+    --risk-low-bg: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+    --risk-low-text: #15803d;
+
+    /* Effects */
+    --shadow-premium: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+    --glass-border: rgba(255, 255, 255, 0.5);
+    --transition-standard: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* 1. Global Reset & Smoothness */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    background-color: var(--surface-bg);
+    /* Premium background subtle dot pattern */
+    background-image: radial-gradient(#cbd5e1 0.8px, transparent 0.8px);
+    background-size: 30px 30px;
+    color: var(--text-main);
+    min-height: 100vh;
+    padding: 60px 20px;
+    display: flex;
+    justify-content: center;
+}
+
+/* 2. Main Dashboard Container (Glassmorphism) */
+.container {
+    width: 100%;
+    max-width: 950px;
+    background: var(--surface-card);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    border-radius: 32px;
+    padding: 50px;
+    box-shadow: var(--shadow-premium);
+    transition: var(--transition-standard);
+}
+
+/* 3. Header & Gradient Text */
+header {
+    text-align: center;
+    margin-bottom: 45px;
+}
+
+h1 {
+    font-size: 40px;
+    font-weight: 800;
+    letter-spacing: -1.5px;
+    background: linear-gradient(135deg, var(--brand-primary), var(--brand-secondary));
+    
+    /* Compatibility for Gradient Text */
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    
+    margin-bottom: 8px;
+}
+
+.subtitle {
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-size: 16px;
+}
+
+/* 4. Input Section Organization */
+.input-section {
+    margin-bottom: 40px;
+}
+
+.input-section h3 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.input-section h3::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(to right, #e2e8f0, transparent);
+}
+
+/* 5. Textarea Styling (Fixes Overflow) */
+textarea {
+    width: 100%;
+    max-width: 100%; /* Prevents dragging out of bounds */
+    min-height: 160px;
+    padding: 20px;
+    border: 2px solid #e2e8f0;
+    border-radius: 20px;
+    font-family: inherit;
+    font-size: 16px;
+    background: var(--surface-input);
+    transition: var(--transition-standard);
+    resize: vertical; /* Only allow vertical stretching */
+    box-sizing: border-box;
+}
+
+textarea:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 6px rgba(0, 98, 255, 0.1);
+    transform: translateY(-2px);
+}
+
+/* 6. Professional Feature Grid */
+.features {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 20px;
+}
+
+/* Note: Wrap your labels/inputs in a div class="input-group" in HTML for this */
+.input-group {
+    background: #fff;
+    padding: 16px 20px;
+    border-radius: 20px;
+    border: 1px solid #e2e8f0;
+    transition: var(--transition-standard);
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+}
+
+.input-group:hover {
+    border-color: var(--brand-primary);
+    transform: translateY(-3px);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.04);
+}
+
+.input-group label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.input-group input {
+    border: none;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-main);
+    width: 100%;
+    background: transparent;
+}
+
+.input-group input:focus {
+    outline: none;
+    color: var(--brand-primary);
+}
+
+/* 7. Action Button (The "Hero" Element) */
+button {
+    width: 100%;
+    padding: 22px;
+    background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-secondary) 100%);
+    color: white;
+    border: none;
+    border-radius: 22px;
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: var(--transition-standard);
+    box-shadow: 0 12px 24px -6px rgba(0, 98, 255, 0.4);
+    margin-top: 20px;
+}
+
+button:hover {
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: 0 20px 40px -10px rgba(0, 98, 255, 0.5);
+}
+
+button:active {
+    transform: scale(0.97);
+}
+
+/* 8. Result & Visualization Architecture */
+#result {
+    margin-top: 50px;
+    animation: slideUp 0.7s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(40px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.risk-card {
+    border-radius: 28px;
+    padding: 45px;
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.high { background: var(--risk-high-bg); color: var(--risk-high-text); border: 2px solid rgba(190, 18, 60, 0.1); }
+.low { background: var(--risk-low-bg); color: var(--risk-low-text); border: 2px solid rgba(21, 128, 61, 0.1); }
+
+.risk-card h2 { 
+    font-size: 48px; 
+    font-weight: 800; 
+    margin-bottom: 10px;
+    letter-spacing: -1px;
+}
+
+.result-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 25px;
+    margin-top: 25px;
+}
+
+.result-box {
+    background: white;
+    padding: 30px;
+    border-radius: 24px;
+    border: 1px solid #e2e8f0;
+    box-shadow: var(--shadow-premium);
+}
+
+.result-box h4 {
+    font-size: 12px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 1.5px;
+    margin-bottom: 15px;
+}
+
+/* 9. Image Polishing */
+img {
+    width: 100%;
+    border-radius: 18px;
+    margin-top: 15px;
+    border: 1px solid #f1f5f9;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+    transition: transform 0.5s ease;
+}
+
+img:hover {
+    transform: scale(1.04);
+}
+
+/* 10. The Modern Loader */
+.loader {
+    width: 56px;
+    height: 56px;
+    border: 5px solid #e2e8f0;
+    border-top: 5px solid var(--brand-primary);
+    border-radius: 50%;
+    margin: 40px auto;
+    animation: rotate 1s infinite linear;
+}
+
+@keyframes rotate { to { transform: rotate(360deg); } }
