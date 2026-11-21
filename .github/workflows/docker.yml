@@ -37,3 +37,37 @@ jobs:
       - name: Container logs
         if: always()
         run: docker logs app || true
+
+  real-model-512mb:
+    # Proves the production image with the REAL model fits the 512 MB free tier.
+    # Skipped until the "Export ONNX model" workflow has published model-v1.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the model release exists
+        id: release
+        run: |
+          url="https://github.com/${{ github.repository }}/releases/download/model-v1/manifest.json"
+          if curl -fsSL -o /dev/null "$url"; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; echo "::notice::model-v1 release not found - run the 'Export ONNX model' workflow first."; fi
+
+      - name: Build image with the model baked in
+        if: steps.release.outputs.exists == 'true'
+        run: docker build -t mimic-nlp:real .
+
+      - name: Run with a 512 MB memory limit and predict
+        if: steps.release.outputs.exists == 'true'
+        run: |
+          docker run -d --name real -p 8000:8000 --memory=512m --cpus=0.5 mimic-nlp:real
+          for i in $(seq 1 90); do
+            curl -fsS http://127.0.0.1:8000/health | grep -q '"ready"' && break
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8000/health
+          curl -fsS -X POST http://127.0.0.1:8000/predict -H 'Content-Type: application/json' \
+            -d @data/sample_input.json | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['prediction'], round(d['probability'],4), d['explanation']['important_words'])"
+          docker stats --no-stream real
+
+      - name: Container logs
+        if: always() && steps.release.outputs.exists == 'true'
+        run: docker logs real || true
