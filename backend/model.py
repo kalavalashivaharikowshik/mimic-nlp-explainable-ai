@@ -80,3 +80,25 @@ class HybridModel(nn.Module):
     def forward(self, input_ids, attention_mask, structured):
         text_emb, _ = self.encode_text(input_ids, attention_mask)
         return self.head(text_emb, structured)
+
+
+def load_state_dict_compat(model: nn.Module, state_dict: dict) -> None:
+    """Load weights saved by older/newer transformers versions.
+
+    ``embeddings.position_ids`` was a persistent buffer in transformers < 4.31
+    and is not saved by newer versions; it is safe to ignore either way.
+    ``module.`` prefixes from DataParallel training are stripped.
+    """
+    state_dict = {k.removeprefix("module."): v for k, v in state_dict.items()}
+    result = model.load_state_dict(state_dict, strict=False)
+
+    def harmless(key: str) -> bool:
+        return key.endswith("position_ids")
+
+    missing = [k for k in result.missing_keys if not harmless(k)]
+    unexpected = [k for k in result.unexpected_keys if not harmless(k)]
+    if missing or unexpected:
+        raise RuntimeError(
+            f"Weights do not match the model architecture. Missing: {missing[:5]} "
+            f"Unexpected: {unexpected[:5]}"
+        )
