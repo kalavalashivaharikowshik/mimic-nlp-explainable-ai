@@ -31,7 +31,7 @@ class FeatureContribution(BaseModel):
     label: str
     value: float
     contribution: float = Field(description="SHAP value (change in mortality probability).")
-    direction: str = Field(description="'increases risk' or 'decreases risk'")
+    direction: str = Field(description="'increases risk', 'decreases risk' or 'no effect'")
 
 
 class KeyTerm(BaseModel):
