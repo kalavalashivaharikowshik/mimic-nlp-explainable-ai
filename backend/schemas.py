@@ -1,0 +1,73 @@
+"""Request / response models for the API (also drive the /docs page)."""
+
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+from .config import MAX_TEXT_CHARS, N_FEATURES
+
+
+class PatientInput(BaseModel):
+    text: str = Field(
+        ...,
+        max_length=MAX_TEXT_CHARS,
+        description="Free-text clinical note.",
+        examples=["Patient has sepsis and low blood pressure, started on vasopressors."],
+    )
+    features: list[float] = Field(
+        ...,
+        min_length=N_FEATURES,
+        max_length=N_FEATURES,
+        description=(
+            "[age, gender (0=male, 1=female), heart_rate, sbp, dbp, mbp, spo2, "
+            "creatinine, glucose, hemoglobin]"
+        ),
+        examples=[[65, 1, 110, 85, 50, 62, 89, 2.4, 210, 9.1]],
+    )
+
+
+class FeatureContribution(BaseModel):
+    name: str
+    label: str
+    value: float
+    contribution: float = Field(description="SHAP value (change in mortality probability).")
+    direction: str = Field(description="'increases risk' or 'decreases risk'")
+
+
+class KeyTerm(BaseModel):
+    word: str
+    score: float
+
+
+class ClinicalFlag(BaseModel):
+    source: str = Field(description="'vitals/labs' or 'clinical note'")
+    message: str
+
+
+class Explanation(BaseModel):
+    important_words: list[str]
+    key_terms: list[KeyTerm]
+    top_features: list[FeatureContribution]
+
+
+class ShapResult(BaseModel):
+    base_value: float
+    values: dict[str, float]
+    plot: str = Field(description="PNG image, base64 encoded.")
+
+
+class LimeResult(BaseModel):
+    weights: dict[str, float]
+    plot: str = Field(description="PNG image, base64 encoded.")
+
+
+class PredictionResponse(BaseModel):
+    prediction: str
+    probability: float = Field(description="Predicted probability of in-hospital mortality (0-1).")
+    threshold: float
+    explanation: Explanation
+    clinical_flags: list[ClinicalFlag]
+    note_message: str
+    shap: ShapResult
+    lime: LimeResult
+    disclaimer: str
