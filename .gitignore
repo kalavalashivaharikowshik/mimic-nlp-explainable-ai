@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Model weights (downloaded at runtime, too large for git)
+backend/models/
+*.pth
+*.pt
+*.bin
+*.safetensors
+
+# Training data (MIMIC data must never be committed - PhysioNet DUA)
+training/data/
+*.csv.gz
+mimic*/
+
+# Training outputs
+training/outputs/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.*
+!.env.example
