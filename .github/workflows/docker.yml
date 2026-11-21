@@ -1,0 +1,36 @@
+name: Docker build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image (without baking the model, to keep CI fast)
+        run: docker build --build-arg PRELOAD_MODEL=0 -t mimic-nlp:ci .
+
+      - name: Start container and check that the web server comes up
+        run: |
+          docker run -d --name app -p 7860:7860 -e LOAD_MODEL_ON_STARTUP=false mimic-nlp:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:7860/health; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:7860/health | grep '"status":"ok"'
+          curl -fsS http://127.0.0.1:7860/ | grep -q "ICU Mortality Prediction"
+          curl -fsS http://127.0.0.1:7860/frontend/script.js > /dev/null
+          status=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:7860/predict \
+            -H 'Content-Type: application/json' -d '{"text":"x","features":[1,2]}')
+          test "$status" = "422"
+
+      - name: Container logs
+        if: always()
+        run: docker logs app || true
