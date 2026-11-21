@@ -51,14 +51,15 @@ class Explanation(BaseModel):
 
 
 class ShapResult(BaseModel):
-    base_value: float
-    values: dict[str, float]
-    plot: str = Field(description="PNG image, base64 encoded.")
+    base_value: float = Field(description="Average prediction over the reference cohort.")
+    values: dict[str, float] = Field(
+        description="Exact SHAP value per feature; base_value + sum(values) = probability."
+    )
 
 
 class LimeResult(BaseModel):
-    weights: dict[str, float]
-    plot: str = Field(description="PNG image, base64 encoded.")
+    weights: dict[str, float] = Field(description="Local rule -> weight towards mortality.")
+    fit_r2: float = Field(description="How well the local linear model fits (0-1).")
 
 
 class PredictionResponse(BaseModel):

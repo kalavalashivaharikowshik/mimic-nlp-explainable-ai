@@ -17,7 +17,7 @@ Improvements over the old version:
 
 from __future__ import annotations
 
-import torch
+import numpy as np
 
 STOP_WORDS = frozenset(
     """
@@ -51,7 +51,7 @@ def _keep(word: str) -> bool:
 
 def key_terms(
     text: str,
-    attentions: tuple[torch.Tensor, ...] | None,
+    cls_attention: np.ndarray | None,
     word_ids: list[int | None],
     offsets: list[tuple[int, int]],
     top_k: int = 8,
@@ -60,15 +60,14 @@ def key_terms(
 
     Args:
         text: the exact text that was tokenised.
-        attentions: per-layer attention tensors from the encoder.
-        word_ids: ``encoding.word_ids()`` (None for special tokens).
+        cls_attention: last-layer attention from [CLS] to every token,
+            averaged over heads (an output of the ONNX encoder).
+        word_ids: word index of every token (None for special tokens).
         offsets: character offsets of every token in ``text``.
     """
-    if not attentions or not text:
+    if cls_attention is None or not text:
         return []
-
-    # Last layer, averaged over heads, attention FROM [CLS] TO every token.
-    cls_attention = attentions[-1][0].mean(dim=0)[0].float().cpu().numpy()
+    cls_attention = np.asarray(cls_attention, dtype=np.float64).reshape(-1)
 
     words: dict[int, dict] = {}
     for idx, wid in enumerate(word_ids):

@@ -22,7 +22,6 @@ from .schemas import PatientInput, PredictionResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("mimic-nlp")
-logging.getLogger("shap").setLevel(logging.WARNING)
 
 
 class ModelState:
@@ -40,7 +39,7 @@ class ModelState:
                 return
             self.status = "loading"
         try:
-            from .load_model import load_artifacts
+            from .artifacts import load_artifacts
 
             predictor = MortalityPredictor(load_artifacts())
             with self._lock:
