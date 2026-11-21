@@ -43,3 +43,11 @@ jobs:
         env:
           LOAD_MODEL_ON_STARTUP: "false"
         run: pytest
+
+      - name: Server runs with the lean requirements only (no PyTorch)
+        if: matrix.python-version == '3.11'
+        run: |
+          python -m venv /tmp/lean
+          /tmp/lean/bin/pip install -q -r backend/requirements.txt
+          LOAD_MODEL_ON_STARTUP=false /tmp/lean/bin/python -c "import backend.main, backend.predict, backend.artifacts; print('lean import OK')"
+          ! /tmp/lean/bin/python -c "import torch" 2>/dev/null
