@@ -175,7 +175,8 @@
     function fmtValue(name, value) {
         if (name === "gender") return value === 1 ? "female" : "male";
         const digits = name === "creatinine" || name === "hemoglobin" ? 1 : 0;
-        return `${value.toFixed(digits)} ${UNITS[name] || ""}`.trim();
+        const unit = UNITS[name] || "";
+        return unit === "%" ? `${value.toFixed(digits)}%` : `${value.toFixed(digits)} ${unit}`.trim();
     }
 
     function riskCard(data) {
@@ -264,30 +265,69 @@
         );
     }
 
-    function imageBox(title, caption, base64, alt) {
+    /**
+     * Diverging horizontal bar chart drawn with plain HTML (accessible, crisp
+     * on every screen). items: [{label, value}], value in probability units.
+     */
+    function chartBox(title, caption, items, footnote) {
+        const max = Math.max(...items.map((d) => Math.abs(d.value)), 1e-9);
+        const rows = items.map((d) => {
+            const pct = (Math.abs(d.value) / max) * 50;
+            const cls = d.value > 1e-6 ? "up" : d.value < -1e-6 ? "down" : "none";
+            const pp = d.value * 100;
+            const text = `${pp >= 0 ? "+" : ""}${pp.toFixed(2)} pp`;
+            return el("div", { class: "chart-row", role: "listitem", "aria-label": `${d.label}: ${text}` },
+                el("span", { class: "chart-label", title: d.label }, d.label),
+                el("span", { class: "chart-track", "aria-hidden": "true" },
+                    el("span", { class: `chart-bar ${cls}`, style: cls === "down" ? `right:50%;width:${pct}%` : `left:50%;width:${pct}%` }),
+                ),
+                el("span", { class: `chart-value ${cls}` }, text),
+            );
+        });
         return el("div", { class: "result-box" },
             el("h3", {}, title),
             el("p", { class: "box-caption" }, caption),
-            el("img", { src: `data:image/png;base64,${base64}`, alt, decoding: "async" }),
+            el("div", { class: "chart", role: "list" }, rows),
+            el("div", { class: "chart-legend", "aria-hidden": "true" },
+                el("span", {}, el("i", { class: "swatch down" }), "decreases risk"),
+                el("span", {}, el("i", { class: "swatch up" }), "increases risk"),
+            ),
+            footnote ? el("p", { class: "box-caption", style: "margin:10px 0 0" }, footnote) : null,
         );
     }
 
-    function renderResult(data, noteText) {
+    function shapItems(data, raw) {
+        const names = FEATURES.map((f) => f.name);
+        return names
+            .map((name, i) => ({
+                label: `${FEATURES[i].label} = ${fmtValue(name, raw[i])}`,
+                value: data.shap.values[name] ?? 0,
+            }))
+            .sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+    }
+
+    function limeItems(data) {
+        return Object.entries(data.lime.weights)
+            .map(([label, value]) => ({ label, value }))
+            .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+            .slice(0, 6);
+    }
+
+    function renderResult(data, noteText, raw) {
         const wrapper = el("div", { class: "fade-in" },
             riskCard(data),
             el("div", { class: "result-grid" }, keyTermsBox(data, noteText), driversBox(data)),
             flagsBox(data),
-            imageBox(
+            chartBox(
                 "SHAP explanation (this patient)",
-                `How each vital/lab value moved the probability away from the average reference patient (${(data.shap.base_value * 100).toFixed(1)}%).`,
-                data.shap.plot,
-                "Bar chart of SHAP contributions per feature",
+                `Exact contribution of each vital/lab value, starting from the average reference patient (${(data.shap.base_value * 100).toFixed(1)}%) and adding up to this patient's ${(data.probability * 100).toFixed(1)}%.`,
+                shapItems(data, raw),
             ),
-            imageBox(
+            chartBox(
                 "LIME explanation (local rules)",
-                "Simple rules learned around this patient that approximate the model's behaviour.",
-                data.lime.plot,
-                "Bar chart of LIME rule weights",
+                "Simple rules that approximate the model's behaviour around this patient.",
+                limeItems(data),
+                `Local fit R² = ${data.lime.fit_r2.toFixed(2)} (closer to 1 = the rules describe the model better).`,
             ),
             el("p", { class: "footnote" }, data.note_message),
             el("p", { class: "footnote" }, data.disclaimer),
@@ -353,7 +393,7 @@
                 return;
             }
 
-            renderResult(data, payload.text);
+            renderResult(data, payload.text, payload.features);
             if (!modelReady) { modelReady = true; setStatus("ready", "Model ready"); }
         } catch (err) {
             console.error("Prediction error:", err);
