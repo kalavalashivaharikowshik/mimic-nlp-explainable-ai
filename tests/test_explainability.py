@@ -1,5 +1,3 @@
-import base64
-
 import numpy as np
 import pytest
 import torch
@@ -9,8 +7,6 @@ from backend.clinical_flags import clinical_flags, note_flags, vital_flags
 from backend.explain import LimeExplainer, ShapExplainer, make_predict_fn, top_features
 from backend.nlp import key_terms
 from tests.conftest import CRITICAL, STABLE
-
-PNG_MAGIC = b"\x89PNG"
 
 
 def toy_predict(x):
@@ -35,7 +31,16 @@ def test_shap_is_additive_and_deterministic(background):
     assert total == pytest.approx(float(toy_predict(raw)[0]), abs=1e-6)
     # Features the toy model ignores get exactly zero credit
     assert r1["values"]["heart_rate"] == pytest.approx(0, abs=1e-9)
-    assert base64.b64decode(r1["plot"])[:4] == PNG_MAGIC
+
+
+def test_shap_matches_official_shap_library(background):
+    """Our exact numpy SHAP equals shap.KernelExplainer with full enumeration."""
+    shap = pytest.importorskip("shap")
+    raw = np.array(CRITICAL, dtype=float)
+    ours = ShapExplainer(background, n_reference=30).explain(toy_predict, raw)["values"]
+    kernel = shap.KernelExplainer(toy_predict, background[:30])
+    ref = np.asarray(kernel.shap_values(raw[None], nsamples=2048, silent=True)).reshape(-1)
+    np.testing.assert_allclose(list(ours.values()), ref, atol=1e-9)
 
 
 def test_top_features_ranked_by_absolute_shap(background):
@@ -84,25 +89,38 @@ def test_lime_uses_raw_units_and_is_deterministic(background):
         if t.replace(".", "", 1).isdigit()
     ]
     assert any(n > 10 for n in numbers)
-    assert base64.b64decode(r1["plot"])[:4] == PNG_MAGIC
+    assert 0 <= r1["fit_r2"] <= 1
 
 
-# ---------- prediction function ----------
-def test_predict_fn_matches_full_forward(artifacts):
-    tok, model, scaler = artifacts.tokenizer, artifacts.model, artifacts.scaler
-    enc = tok("patient in septic shock", return_tensors="pt")
-    with torch.no_grad():
-        emb, _ = model.encode_text(enc["input_ids"], enc["attention_mask"])
-        expected = torch.sigmoid(
-            model(
-                enc["input_ids"],
-                enc["attention_mask"],
-                torch.tensor(scaler.transform([STABLE]), dtype=torch.float32),
+# ---------- ONNX pipeline vs PyTorch ----------
+def test_onnx_pipeline_matches_pytorch(onnx_bundle):
+    """Tokenizer + ONNX encoder + numpy head == the original PyTorch model."""
+    onnx_arts, torch_arts = onnx_bundle
+    model, tok, scaler = torch_arts.model, torch_arts.tokenizer, torch_arts.scaler
+    for text in ["patient in septic shock, intubated", "stable", ""]:
+        enc = tok(text, return_tensors="pt")
+        x = torch.tensor(scaler.transform([STABLE, CRITICAL]), dtype=torch.float32)
+        with torch.no_grad():
+            expected = (
+                torch.sigmoid(model(enc["input_ids"], enc["attention_mask"], x)).squeeze(-1).numpy()
             )
-        ).item()
-    fn = make_predict_fn(model, scaler, emb, torch.device("cpu"))
-    assert fn(np.array(STABLE))[0] == pytest.approx(expected, rel=1e-5)
-    assert fn(np.array([STABLE, CRITICAL])).shape == (2,)
+
+        fast = onnx_arts.tokenizer.encode(text)
+        assert fast.ids == enc["input_ids"][0].tolist()
+        emb, _ = onnx_arts.session.run(
+            None,
+            {"input_ids": np.array([fast.ids]), "attention_mask": np.array([fast.attention_mask])},
+        )
+        fn = make_predict_fn(onnx_arts.head, onnx_arts.scaler, emb[0])
+        np.testing.assert_allclose(fn(np.array([STABLE, CRITICAL])), expected, atol=1e-5)
+
+
+def test_int8_quantized_encoder_stays_close(tmp_path):
+    from tests.fakes import make_onnx_artifacts
+
+    q_arts, _ = make_onnx_artifacts(tmp_path, quantize=True)
+    assert q_arts.manifest["default_encoder"] == "encoder.int8.onnx"
+    assert q_arts.manifest["parity_max_abs_diff"]["encoder.int8.onnx"] < 0.02
 
 
 # ---------- attention key terms ----------
