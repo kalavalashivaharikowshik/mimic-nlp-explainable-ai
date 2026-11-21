@@ -9,8 +9,8 @@
 A full-stack system that estimates in-hospital mortality risk for ICU patients from
 **clinical notes (BioBERT)** and **vital signs / lab values**, and explains every
 prediction with **attention, exact SHAP and LIME**. Inference runs on **ONNX Runtime**
-with an int8-quantized BioBERT, so the whole app fits in **512 MB of RAM** and can be
-hosted for free.
+with a mixed-precision int8 BioBERT, so the whole app fits in **512 MB of RAM** (342 MB
+peak) and can be hosted for free.
 
 > ⚠️ **Research prototype.** For education and research only. It is not a medical
 > device and has not been validated for clinical decision-making.
@@ -22,7 +22,7 @@ hosted for free.
 ## ✨ Features
 
 - **Multimodal model**: BioBERT note encoder + MLP for 10 vitals/labs, fused for a single risk score
-- **Lightweight inference**: ONNX Runtime + `tokenizers` + numpy, with no PyTorch on the server. The int8 encoder is 4× smaller (108 MB) and stays within 0.004 of the original probabilities
+- **Lightweight inference**: ONNX Runtime + `tokenizers` + numpy, with no PyTorch on the server. The mixed-precision int8 encoder is 2.2× smaller (194 MB). Its accuracy is measured on every export (mean probability change 0.009), and predictions close to the threshold are flagged as borderline
 - **Exact, fast explanations**: SHAP computed exactly from all 1,024 feature coalitions (identical to `shap.KernelExplainer`, 60× faster) and LIME, both in pure numpy, reusing one cached note embedding
 - **Clinician-readable output**: SHAP and LIME in real units (mmHg, mg/dL), key terms highlighted in the note, transparent rule-based clinical flags with negation handling
 - **Web app**: responsive, accessible UI with example patients, inline validation, live model status, charts drawn in the browser
@@ -38,7 +38,7 @@ hosted for free.
 |---|---|
 | ![Input form](images/ui_input.png) | ![Prediction result](images/ui_result.png) |
 
-<sub>Screenshots rendered with the test stand-in model, so the numbers shown are only illustrative.</sub>
+<sub>Real output of the published model (mixed-precision ONNX) for the built-in "Critical patient" example (synthetic data).</sub>
 
 ---
 
@@ -46,7 +46,7 @@ hosted for free.
 
 ```mermaid
 flowchart LR
-    N[Clinical note] --> T[tokenizers] --> B["BioBERT encoder<br/>(ONNX Runtime, int8)"]
+    N[Clinical note] --> T[tokenizers] --> B["BioBERT encoder<br/>(ONNX Runtime, mixed int8)"]
     B -->|CLS embedding| F
     B -->|"CLS attention"| A[Key terms]
     V[10 vitals / labs] --> C[Clip to clinical range] --> S[Standard scaler] --> F["Fusion head<br/>(numpy)"]
@@ -67,14 +67,14 @@ head (about 7k multiply-adds per sample) about 53,000 times, which takes a few m
 | Structured (local) | LIME (weighted ridge on quartile rules) | Simple threshold rules (e.g. `Creatinine > 1.34`) that approximate the model around this patient |
 | Rules | Standard clinical thresholds + negation-aware note keywords | Transparent flags such as *MAP < 65* or *vasopressors mentioned*, clearly separated from model output |
 
-### Resource use (full-size BioBERT, int8, 256-token note)
+### Resource use (real model, 256-token note, measured)
 
 | | PyTorch version | ONNX Runtime version |
 |---|---|---|
 | Server dependencies | ~2.5 GB | ~190 MB |
-| Model file | 434 MB | 108 MB |
-| Peak RAM | ~2 GB | **255 MB** |
-| Latency per request (1 CPU core) | minutes (old SHAP/LIME) | **~0.2 s** |
+| Model file | 434 MB | 194 MB |
+| Peak RAM (whole server) | ~2 GB | **342 MB** |
+| Latency per request (1 CPU core) | minutes (old SHAP/LIME) | **~0.3 s** |
 
 ---
 
@@ -93,7 +93,7 @@ pip install -r backend/requirements.txt     # lean: no PyTorch
 uvicorn backend.main:app --reload
 ```
 
-Open **http://127.0.0.1:8000**. On first start the ONNX model (~110 MB) is downloaded
+Open **http://127.0.0.1:8000**. On first start the ONNX model (~195 MB) is downloaded
 from the [`model-v1` release](https://github.com/kalavalashivaharikowshik/mimic-nlp-explainable-ai/releases/tag/model-v1)
 and verified against its SHA-256 checksums. The status pill turns green once it is ready.
 
@@ -187,10 +187,11 @@ All settings are optional environment variables (see [`.env.example`](.env.examp
 |---|---|---|
 | `MODEL_BASE_URL` | `model-v1` release URL | Where to download the ONNX model from |
 | `ONNX_DIR` | `backend/models/onnx` | Local model folder |
-| `ONNX_ENCODER` | manifest default (int8) | `encoder.onnx` for float32 |
+| `ONNX_ENCODER` | manifest default (mixed int8) | `encoder.onnx` for float32 (needs ~700 MB RAM) |
 | `ORT_THREADS` | `0` (auto) | ONNX Runtime CPU threads |
 | `ORT_LOW_MEMORY` | `true` | ~100 MB less RAM for ~25 % slower inference |
 | `THRESHOLD` | `0.3` | HIGH/LOW decision threshold on the probability |
+| `BORDERLINE_MARGIN` | `0.05` | Flag predictions this close to the threshold |
 | `ALLOWED_ORIGINS` | – | CORS origins, only needed if the UI is hosted elsewhere |
 | `PORT` | `8000` (Docker) | Server port |
 
@@ -225,7 +226,17 @@ python -m tools.export_onnx --weights training/outputs/hybrid_model.pth --out di
 
 This writes `encoder.onnx`, `encoder.int8.onnx`, `head.npz`, `tokenizer.json` and
 `manifest.json` (with SHA-256 checksums). The export fails if the float32 graph differs
-from PyTorch.
+from PyTorch, or if the int8 encoder changes probabilities too much on 120 synthetic notes.
+
+**Why mixed precision?** On the real fine-tuned model, plain int8 quantization changed
+probabilities by up to 0.18 (mean 0.021). BERT's feed-forward output projections see large
+activation outliers, so the export keeps those 12 layers in float32:
+
+| Encoder | Size | Max change | Mean change | Peak RAM |
+|---|---|---|---|---|
+| float32 | 431 MB | 0 | 0 | 642 MB |
+| plain int8 | 109 MB | 0.177 | 0.021 | 197 MB |
+| **mixed int8 (used)** | **194 MB** | **0.055** | **0.009** | **306 MB** |
 
 ---
 
@@ -235,7 +246,7 @@ from PyTorch.
 |---|---|
 | Task | Binary in-hospital mortality prediction for ICU stays |
 | Data | MIMIC (de-identified, PhysioNet credentialed access) |
-| Text encoder | `dmis-lab/biobert-base-cased-v1.1` (fine-tuned), served as int8 ONNX |
+| Text encoder | `dmis-lab/biobert-base-cased-v1.1` (fine-tuned), served as mixed-precision int8 ONNX |
 | Structured inputs | Age, gender, HR, SBP, DBP, MBP, SpO2, creatinine, glucose, hemoglobin |
 | Reported metrics (original run) | Accuracy ≈ 0.80 · F1 ≈ 0.47 · AUROC ≈ 0.87 |
 
@@ -247,7 +258,9 @@ from PyTorch.
 - **The published weights barely use heart rate, blood pressure and SpO2.** Their scaler was
   fitted on uncleaned data (SpO2 mean 102.7 %, MBP std 1,722 mmHg), which squashes these
   vitals to almost the same value for every patient. Retraining fixes this.
-- int8 quantization changes probabilities by up to ~0.004 compared with float32.
+- Quantization changes probabilities by 0.009 on average (max 0.055) compared with float32.
+  Labels only changed for patients within 0.003 of the threshold, and the UI marks predictions
+  within 5 percentage points of the threshold as borderline.
 - Attention weights are a hint about what the encoder focused on, not a causal explanation.
 - SHAP and LIME explain the structured features with the note held fixed.
 - Trained on a single US hospital system; performance elsewhere is unknown.
