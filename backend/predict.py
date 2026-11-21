@@ -1,17 +1,20 @@
-"""Prediction engine: one request -> prediction + all explanations."""
+"""Prediction engine: one request -> prediction + all explanations.
+
+Runs entirely on ONNX Runtime + numpy: one BioBERT (ONNX) pass per request,
+then the numpy fusion head for the prediction, exact SHAP and LIME.
+"""
 
 from __future__ import annotations
 
 import threading
 
 import numpy as np
-import torch
 
 from . import config
+from .artifacts import OnnxArtifacts
 from .background import make_background
 from .clinical_flags import clinical_flags
 from .explain import LimeExplainer, ShapExplainer, make_predict_fn, top_features
-from .load_model import Artifacts
 from .nlp import key_terms
 from .utils import clean_text, clip_features, validate_features
 
@@ -25,11 +28,12 @@ class InvalidInputError(ValueError):
 
 
 class MortalityPredictor:
-    def __init__(self, artifacts: Artifacts, background: np.ndarray | None = None):
-        self.model = artifacts.model
+    def __init__(self, artifacts: OnnxArtifacts, background: np.ndarray | None = None):
+        self.artifacts = artifacts
+        self.session = artifacts.session
         self.tokenizer = artifacts.tokenizer
+        self.head = artifacts.head
         self.scaler = artifacts.scaler
-        self.device = artifacts.device
 
         background = make_background() if background is None else background
         self.shap = ShapExplainer(background)
@@ -38,41 +42,33 @@ class MortalityPredictor:
         # One request at a time keeps memory bounded on small (free-tier) hosts.
         self._lock = threading.Lock()
 
-    def _encode(self, text: str):
-        enc = self.tokenizer(
-            text,
-            truncation=True,
-            max_length=config.MAX_LENGTH,
-            return_offsets_mapping=True,
-            return_tensors="pt",
-        )
-        word_ids = enc.word_ids(0)
-        offsets = [tuple(o) for o in enc.pop("offset_mapping")[0].tolist()]
-        input_ids = enc["input_ids"].to(self.device)
-        attention_mask = enc["attention_mask"].to(self.device)
-        with torch.no_grad():
-            text_emb, attentions = self.model.encode_text(
-                input_ids, attention_mask, output_attentions=True
-            )
-        return text_emb, attentions, word_ids, offsets
+    def encode(self, text: str):
+        """Run the ONNX encoder once: [CLS] embedding, [CLS] attention, token alignment."""
+        enc = self.tokenizer.encode(text)
+        feed = {
+            "input_ids": np.asarray([enc.ids], dtype=np.int64),
+            "attention_mask": np.asarray([enc.attention_mask], dtype=np.int64),
+        }
+        cls_embedding, cls_attention = self.session.run(None, feed)
+        return cls_embedding[0], cls_attention[0], enc.word_ids, enc.offsets
 
     def predict(self, text: str, features: list[float]) -> dict:
         errors = validate_features(features)
         if errors:
             raise InvalidInputError(errors)
 
-        text = clean_text(text)
+        text = clean_text(text, lowercase=self.artifacts.lowercase)
         raw = clip_features(features)
 
         with self._lock:
-            text_emb, attentions, word_ids, offsets = self._encode(text)
-            predict_fn = make_predict_fn(self.model, self.scaler, text_emb, self.device)
+            text_emb, cls_attention, word_ids, offsets = self.encode(text)
+            predict_fn = make_predict_fn(self.head, self.scaler, text_emb)
 
             prob = float(predict_fn(raw)[0])
             shap_result = self.shap.explain(predict_fn, raw)
             lime_result = self.lime.explain(predict_fn, raw)
 
-        terms = key_terms(text, attentions, word_ids, offsets)
+        terms = key_terms(text, cls_attention, word_ids, offsets)
 
         if len(text.split()) < 5:
             note_message = (
