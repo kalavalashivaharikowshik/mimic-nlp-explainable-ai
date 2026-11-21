@@ -1,0 +1,18 @@
+# Render Blueprint - one-click free deployment.
+# Render dashboard -> New -> Blueprint -> select this repository.
+# Free plan: 512 MB RAM, no credit card; sleeps after 15 min idle (~1 min to wake).
+services:
+  - type: web
+    name: icu-mortality-xai
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ORT_THREADS
+        value: "1"
+      - key: ORT_LOW_MEMORY
+        value: "true"
+      - key: THRESHOLD
+        value: "0.3"
