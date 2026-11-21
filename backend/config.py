@@ -80,7 +80,7 @@ LOWERCASE_TEXT = _env_bool("LOWERCASE_TEXT", True)
 MAX_TEXT_CHARS = _env_int("MAX_TEXT_CHARS", 20000)
 
 # Explainability budget (cheap now that BioBERT runs once per request).
-SHAP_NSAMPLES = _env_int("SHAP_NSAMPLES", 500)
+SHAP_NSAMPLES = _env_int("SHAP_NSAMPLES", 1024)
 LIME_NUM_SAMPLES = _env_int("LIME_NUM_SAMPLES", 2000)
 RANDOM_SEED = _env_int("RANDOM_SEED", 42)
 
