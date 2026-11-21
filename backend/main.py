@@ -1,60 +1,175 @@
-# backend/main.py
+"""FastAPI application: serves the web UI and the prediction API.
 
-from fastapi import FastAPI
-from pydantic import BaseModel
+Run from the project root:
+    uvicorn backend.main:app --reload
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from predict import predict
-import os
 
-app = FastAPI()
+from . import __version__, config
+from .predict import InvalidInputError, MortalityPredictor
+from .schemas import PatientInput, PredictionResponse
 
-# -----------------------------
-# ✅ PATH CONFIGURATION
-# -----------------------------
-# This finds the 'frontend' folder which is one level up from the 'backend' folder
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("mimic-nlp")
+logging.getLogger("shap").setLevel(logging.WARNING)
 
-# 1. Mount the frontend folder so the browser can load style.css and script.js
-# We use "/frontend" as the web path to avoid conflicts with your other static folder
-app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend")
 
-# 2. Keep your existing static mount if you use it for backend images/plots
-if os.path.exists("static"):
-    app.mount("/static", StaticFiles(directory="static"), name="static")
+class ModelState:
+    """Tracks background model loading so the server can start instantly."""
 
-# -----------------------------
-# ✅ CORS FIX
-# -----------------------------
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    def __init__(self):
+        self.status = "not_loaded"  # not_loaded | loading | ready | error
+        self.error: str | None = None
+        self.predictor: MortalityPredictor | None = None
+        self._lock = threading.Lock()
+
+    def load(self) -> None:
+        with self._lock:
+            if self.status in ("loading", "ready"):
+                return
+            self.status = "loading"
+        try:
+            from .load_model import load_artifacts
+
+            predictor = MortalityPredictor(load_artifacts())
+            with self._lock:
+                self.predictor = predictor
+                self.status = "ready"
+            logger.info("Model ready")
+        except Exception as exc:  # surfaced through /health
+            logger.exception("Model failed to load")
+            with self._lock:
+                if self.status != "ready":
+                    self.error = str(exc).splitlines()[0][:300]
+                    self.status = "error"
+
+    def set_predictor(self, predictor: MortalityPredictor) -> None:
+        """Inject a ready predictor (used by tests)."""
+        with self._lock:
+            self.predictor = predictor
+            self.status = "ready"
+            self.error = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    state: ModelState = app.state.model
+    if config.LOAD_MODEL_ON_STARTUP and state.status == "not_loaded":
+        threading.Thread(target=state.load, name="model-loader", daemon=True).start()
+    yield
+
+
+app = FastAPI(
+    title="ICU Mortality Prediction API",
+    description=(
+        "Multimodal (clinical note + vitals/labs) mortality risk model with attention, "
+        "SHAP and LIME explanations. " + config.DISCLAIMER
+    ),
+    version=__version__,
+    lifespan=lifespan,
 )
+app.state.model = ModelState()
+
+# CORS is only needed when the UI is hosted on a different origin.
+if config.ALLOWED_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.ALLOWED_ORIGINS,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
+    )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    return response
+
 
 # -----------------------------
-# INPUT FORMAT
+# Error handling: consistent {"detail": [messages]} bodies
 # -----------------------------
-class PatientInput(BaseModel):
-    text: str
-    features: list
+@app.exception_handler(RequestValidationError)
+async def request_validation_handler(request: Request, exc: RequestValidationError):
+    messages = []
+    for err in exc.errors():
+        location = ".".join(str(p) for p in err.get("loc", []) if p != "body")
+        messages.append(f"{location}: {err.get('msg')}" if location else err.get("msg"))
+    return JSONResponse(status_code=422, content={"detail": messages})
+
+
+@app.exception_handler(InvalidInputError)
+async def invalid_input_handler(request: Request, exc: InvalidInputError):
+    return JSONResponse(status_code=422, content={"detail": exc.errors})
+
 
 # -----------------------------
-# ✅ ROOT - NOW SERVES YOUR UI
+# Web UI
 # -----------------------------
-@app.get("/")
+app.mount("/frontend", StaticFiles(directory=config.FRONTEND_DIR), name="frontend")
+
+
+@app.get("/", include_in_schema=False)
 def serve_frontend():
-    # This sends your index.html directly to the browser
-    return FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+    return FileResponse(config.FRONTEND_DIR / "index.html")
+
 
 # -----------------------------
-# PREDICT
+# API
 # -----------------------------
-@app.post("/predict")
+@app.get("/health", tags=["system"])
+def health():
+    state: ModelState = app.state.model
+    body = {"status": "ok", "model": state.status, "version": __version__}
+    if state.error:
+        body["error"] = state.error
+    return body
+
+
+@app.get("/api/metadata", tags=["system"])
+def metadata():
+    return {
+        "features": [
+            {"name": f.name, "label": f.label, "unit": f.unit, "min": f.min, "max": f.max}
+            for f in config.FEATURES
+        ],
+        "threshold": config.THRESHOLD,
+        "max_text_chars": config.MAX_TEXT_CHARS,
+        "disclaimer": config.DISCLAIMER,
+    }
+
+
+@app.post("/predict", response_model=PredictionResponse, tags=["prediction"])
 def predict_api(data: PatientInput):
-    # This calls your logic from predict.py
-    return predict(data.text, data.features)
+    state: ModelState = app.state.model
+    if state.status != "ready" or state.predictor is None:
+        if state.status == "error":
+            return JSONResponse(
+                status_code=503,
+                content={"detail": [f"Model failed to load: {state.error}"]},
+            )
+        if state.status == "not_loaded":
+            return JSONResponse(
+                status_code=503,
+                content={"detail": ["The model is not loaded (LOAD_MODEL_ON_STARTUP is off)."]},
+            )
+        return JSONResponse(
+            status_code=503,
+            headers={"Retry-After": "15"},
+            content={"detail": ["The model is still loading. Please try again in a moment."]},
+        )
+    return state.predictor.predict(data.text, data.features)
