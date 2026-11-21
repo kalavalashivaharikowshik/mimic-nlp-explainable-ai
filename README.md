@@ -5,6 +5,7 @@
 ![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)
 ![ONNX Runtime](https://img.shields.io/badge/inference-ONNX%20Runtime-005ced)
 ![License](https://img.shields.io/badge/license-MIT-green)
+[![Live demo](https://img.shields.io/badge/live%20demo-online-brightgreen)](https://icu-mortality-xai.onrender.com)
 
 A full-stack system that estimates in-hospital mortality risk for ICU patients from
 **clinical notes (BioBERT)** and **vital signs / lab values**, and explains every
@@ -15,7 +16,15 @@ peak) and can be hosted for free.
 > ⚠️ **Research prototype.** For education and research only. It is not a medical
 > device and has not been validated for clinical decision-making.
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/kalavalashivaharikowshik/mimic-nlp-explainable-ai)
+## 🌐 Live demo
+
+**👉 [icu-mortality-xai.onrender.com](https://icu-mortality-xai.onrender.com)**
+
+Click **Critical patient** or **Stable patient**, then **Generate Risk Assessment**.
+Interactive API docs: [/docs](https://icu-mortality-xai.onrender.com/docs).
+
+> Hosted on Render's free plan: the site sleeps after 15 minutes without visitors, so the
+> first visit can take about a minute to wake up. Later predictions take a few seconds.
 
 ---
 
@@ -109,18 +118,22 @@ docker run -p 8000:8000 mimic-nlp
 
 ---
 
-## ☁️ Free deployment (Render)
+## ☁️ Deployment (Render, free)
 
-Render's free plan (512 MB RAM, no credit card) runs the full app. The plan sleeps after
-15 minutes without traffic and takes about a minute to wake up.
+The live demo runs on Render's free plan (512 MB RAM, no credit card) from
+[`render.yaml`](render.yaml). Every push to `main` redeploys it automatically, and the
+model is served from the [`model-v1` release](https://github.com/kalavalashivaharikowshik/mimic-nlp-explainable-ai/releases/tag/model-v1).
+
+**To deploy your own copy:**
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/kalavalashivaharikowshik/mimic-nlp-explainable-ai)
 
 1. **Publish the model once.** On GitHub go to **Actions → Export ONNX model → Run workflow**.
    This downloads the trained weights, converts them to ONNX on GitHub's servers, checks them
    against PyTorch, and publishes the release `model-v1`. It takes about 10 minutes.
 2. **Deploy.** Click **Deploy to Render** above, or in the [Render dashboard](https://dashboard.render.com)
    choose **New → Blueprint** and select this repository. Render reads [`render.yaml`](render.yaml),
-   builds the Docker image with the model baked in, and gives you a public
-   `https://icu-mortality-xai.onrender.com`-style URL.
+   builds the Docker image with the model baked in, and gives you a public URL.
 3. That's it. Every push to `main` redeploys automatically.
 
 The same image runs on any Docker host (Koyeb, Railway, Fly.io, a VM) with ≥ 512 MB RAM.
@@ -139,7 +152,8 @@ Interactive documentation: **`/docs`** (Swagger UI) and `/redoc`.
 | `GET` | `/api/metadata` | Feature names, units, valid ranges, threshold |
 
 ```bash
-curl -X POST http://127.0.0.1:8000/predict \
+# live demo (or http://127.0.0.1:8000 when running locally)
+curl -X POST https://icu-mortality-xai.onrender.com/predict \
      -H "Content-Type: application/json" \
      -d @data/sample_input.json
 ```
