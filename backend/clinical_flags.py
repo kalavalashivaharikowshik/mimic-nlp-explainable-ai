@@ -71,12 +71,16 @@ NEGATION_CUES = re.compile(
 # Cues that negate a term mentioned BEFORE them ("sepsis ruled out").
 POST_NEGATION_CUES = re.compile(r"\b(ruled out|unlikely|resolved|negative|excluded)\b")
 _SENTENCE_SPLIT = re.compile(r"[.;\n!?]")
+# Negation does not carry across a clause boundary ("not intubated, sepsis likely").
+_CLAUSE_BOUNDARY = re.compile(r",|:|\bbut\b|\bhowever\b|\balthough\b")
 
 
 def _is_negated(sentence: str, match_start: int, match_end: int, window_words: int = 5) -> bool:
     """True if a negation cue appears within a few words before or after the match."""
-    before = sentence[:match_start].split()[-window_words:]
-    after = sentence[match_end:].split()[:3]
+    before_text = _CLAUSE_BOUNDARY.split(sentence[:match_start])[-1]
+    after_text = _CLAUSE_BOUNDARY.split(sentence[match_end:])[0]
+    before = before_text.split()[-window_words:]
+    after = after_text.split()[:3]
     return bool(
         NEGATION_CUES.search(" ".join(before)) or POST_NEGATION_CUES.search(" ".join(after))
     )
