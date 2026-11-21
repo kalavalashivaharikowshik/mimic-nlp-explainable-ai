@@ -1,0 +1,26 @@
+[project]
+name = "mimic-nlp-explainable-ai"
+version = "2.0.0"
+description = "Multimodal explainable ICU mortality prediction (BioBERT + vitals/labs) with attention, SHAP and LIME."
+requires-python = ">=3.10"
+authors = [{ name = "kalavalashivaharikowshik" }]
+license = { text = "MIT" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::FutureWarning",
+    "ignore::UserWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["training/outputs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]
