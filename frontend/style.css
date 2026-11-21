@@ -454,13 +454,58 @@ mark { background: #dbeafe; color: var(--text-main); padding: 0 2px; border-radi
 }
 .empty { font-size: 14px; color: var(--text-muted); }
 
-.result-box img {
-    display: block;
-    width: 100%;
-    height: auto;
-    border-radius: 14px;
-    border: 1px solid #f1f5f9;
+/* Diverging bar charts (SHAP / LIME) */
+.chart { display: grid; gap: 6px; }
+.chart-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 34%) 1fr 84px;
+    align-items: center;
+    gap: 12px;
+    font-size: 13px;
 }
+.chart-label {
+    text-align: right;
+    color: var(--text-main);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.chart-track {
+    position: relative;
+    height: 18px;
+    background: #f8fafc;
+    border-radius: 4px;
+}
+.chart-track::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: -3px;
+    bottom: -3px;
+    width: 1px;
+    background: #94a3b8;
+}
+.chart-bar { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; min-width: 1px; }
+.chart-bar.up { background: var(--up); }
+.chart-bar.down { background: var(--down); }
+.chart-bar.none { background: #cbd5e1; }
+.chart-value { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart-value.up { color: var(--up); }
+.chart-value.down { color: var(--down); }
+.chart-value.none { color: var(--text-muted); }
+.chart-legend {
+    display: flex;
+    justify-content: center;
+    gap: 18px;
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.swatch.up { background: var(--up); }
+.swatch.down { background: var(--down); }
 
 .footnote { font-size: 13px; color: var(--text-muted); text-align: center; margin-top: 8px; }
 
@@ -488,6 +533,9 @@ footer a:hover { text-decoration: underline; }
     .risk-card { padding: 26px 18px; }
     .result-box { padding: 20px; }
     .primary-btn { font-size: 16px; padding: 18px; }
+    .chart-row { grid-template-columns: 1fr 64px; gap: 4px 8px; }
+    .chart-label { grid-column: 1 / -1; text-align: left; }
+    .chart-track { grid-column: 1; }
 }
 
 @media (max-width: 380px) {
