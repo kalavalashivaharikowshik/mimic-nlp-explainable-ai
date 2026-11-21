@@ -1,13 +1,14 @@
-import base64
+import json
 
 import pytest
 import torch
 from fastapi.testclient import TestClient
 
 from backend import config
-from backend.load_model import ensure_weights, is_valid_weights_file, load_state_dict_compat
+from backend.artifacts import ensure_artifacts
+from backend.downloads import download_file, is_valid_file, sha256_of
 from backend.main import app
-from backend.model import HybridModel
+from backend.model import HybridModel, load_state_dict_compat
 from backend.predict import InvalidInputError
 from tests.conftest import CRITICAL, STABLE
 
@@ -64,8 +65,8 @@ def test_predict_success(client):
     assert res.status_code == 200
     body = res.json()
     assert body["prediction"] in {"HIGH RISK", "LOW RISK"}
-    assert base64.b64decode(body["shap"]["plot"])[:4] == b"\x89PNG"
-    assert base64.b64decode(body["lime"]["plot"])[:4] == b"\x89PNG"
+    assert set(body["shap"]["values"]) == set(config.FEATURE_NAMES)
+    assert body["lime"]["weights"] and 0 <= body["lime"]["fit_r2"] <= 1
 
 
 @pytest.mark.parametrize(
@@ -110,35 +111,79 @@ def test_no_wildcard_cors_by_default(client):
     assert "access-control-allow-origin" not in res.headers
 
 
-# ---------- model loading ----------
-def test_small_or_missing_weights_are_invalid(tmp_path):
-    assert not is_valid_weights_file(tmp_path / "missing.pth")
-    tiny = tmp_path / "html.pth"
+# ---------- downloads & artefacts ----------
+def test_small_or_missing_files_are_invalid(tmp_path):
+    assert not is_valid_file(tmp_path / "missing.bin")
+    tiny = tmp_path / "html.bin"
     tiny.write_text("<html>Google Drive quota exceeded</html>")
-    assert not is_valid_weights_file(tiny)
+    assert not is_valid_file(tiny, min_bytes=10_000)
+    assert not is_valid_file(tiny, sha256="0" * 64)
+    assert is_valid_file(tiny, sha256=sha256_of(tiny))
 
 
 def test_failed_download_leaves_no_broken_file(tmp_path, monkeypatch):
-    import backend.load_model as lm
+    import backend.downloads as dl
 
-    def fake_download(path):
-        path.write_text("<html>quota</html>")
-
-    monkeypatch.setattr(lm, "_download_to", fake_download)
-    target = tmp_path / "models" / "hybrid_model.pth"
+    monkeypatch.setattr(dl, "_fetch", lambda url, path: path.write_text("<html>quota</html>"))
+    target = tmp_path / "models" / "encoder.onnx"
     with pytest.raises(RuntimeError, match="invalid"):
-        ensure_weights(target)
+        download_file("https://example.org/encoder.onnx", target, min_bytes=1000)
     assert not target.exists()
     assert list(target.parent.iterdir()) == []
 
 
-def test_valid_download_is_moved_into_place(tmp_path, monkeypatch):
-    import backend.load_model as lm
+def test_download_checks_sha256(tmp_path, monkeypatch):
+    import backend.downloads as dl
 
-    monkeypatch.setattr(lm.config, "MIN_MODEL_BYTES", 10)
-    monkeypatch.setattr(lm, "_download_to", lambda p: p.write_bytes(b"x" * 100))
-    target = tmp_path / "hybrid_model.pth"
-    assert ensure_weights(target) == target and target.stat().st_size == 100
+    monkeypatch.setattr(dl, "_fetch", lambda url, path: path.write_bytes(b"x" * 100))
+    good = sha256_of_bytes(b"x" * 100)
+    assert download_file("https://example.org/f", tmp_path / "f", sha256=good).stat().st_size == 100
+    with pytest.raises(RuntimeError):
+        download_file("https://example.org/g", tmp_path / "g", sha256="0" * 64)
+
+
+def sha256_of_bytes(data: bytes) -> str:
+    import hashlib
+
+    return hashlib.sha256(data).hexdigest()
+
+
+def test_ensure_artifacts_downloads_from_release(tmp_path, monkeypatch, onnx_bundle):
+    """Simulate the GitHub release: files are 'downloaded' from the exported folder."""
+    import backend.downloads as dl
+
+    exported = onnx_bundle[0]
+    source = exported.model_dir
+
+    monkeypatch.setattr(
+        dl,
+        "_fetch",
+        lambda url, path: path.write_bytes((source / url.rsplit("/", 1)[1]).read_bytes()),
+    )
+    target = tmp_path / "models"
+    manifest = ensure_artifacts(
+        target, base_url="https://github.com/x/y/releases/download/model-v1"
+    )
+    assert manifest == exported.manifest
+    assert {"manifest.json", "head.npz", "tokenizer.json"} <= {p.name for p in target.iterdir()}
+
+
+def test_ensure_artifacts_rejects_tampered_file(tmp_path, onnx_bundle):
+    target = tmp_path / "models"
+    target.mkdir()
+    for f in onnx_bundle[0].model_dir.iterdir():
+        (target / f.name).write_bytes(f.read_bytes())
+    (target / "head.npz").write_bytes(b"tampered")
+    with pytest.raises(RuntimeError, match="missing or corrupt"):
+        ensure_artifacts(target, base_url="")
+
+
+def test_manifest_lists_checksums(onnx_bundle):
+    manifest = onnx_bundle[0].manifest
+    assert manifest["format_version"] == 1
+    for name, info in manifest["files"].items():
+        assert len(info["sha256"]) == 64 and info["bytes"] > 0, name
+    json.dumps(manifest)
 
 
 def test_state_dict_compat(artifacts):
@@ -148,7 +193,7 @@ def test_state_dict_compat(artifacts):
     fresh = HybridModel(text_config=cfg)
     load_state_dict_compat(fresh, sd)
     for (k, v), v2 in zip(
-        artifacts.model.state_dict().items(), fresh.state_dict().values(), strict=False
+        artifacts.model.state_dict().items(), fresh.state_dict().values(), strict=True
     ):
         assert torch.equal(v, v2), k
 
