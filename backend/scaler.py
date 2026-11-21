@@ -48,7 +48,7 @@ class JsonStandardScaler:
 
     # ---- persistence ----
     @classmethod
-    def load(cls, path: str | Path) -> "JsonStandardScaler":
+    def load(cls, path: str | Path) -> JsonStandardScaler:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         names = data.get("feature_names")
         if names and list(names) != list(FEATURE_NAMES):
@@ -68,7 +68,7 @@ class JsonStandardScaler:
         Path(path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
     @classmethod
-    def fit(cls, x) -> "JsonStandardScaler":
+    def fit(cls, x) -> JsonStandardScaler:
         x = np.asarray(x, dtype=np.float64)
         scale = x.std(axis=0)
         scale[scale == 0] = 1.0

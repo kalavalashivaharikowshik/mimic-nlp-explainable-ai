@@ -23,4 +23,4 @@ extend-exclude = ["training/outputs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
-ignore = ["E501"]
+ignore = ["E501", "UP038"]

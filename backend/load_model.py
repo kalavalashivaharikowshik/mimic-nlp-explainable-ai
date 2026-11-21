@@ -73,7 +73,10 @@ def _download_to(tmp_path: Path) -> None:
             raise RuntimeError("Google Drive download failed (file private or quota exceeded?)")
     else:
         logger.info("Downloading weights from %s", config.MODEL_URL)
-        with urllib.request.urlopen(config.MODEL_URL, timeout=60) as resp, open(tmp_path, "wb") as fh:
+        with (
+            urllib.request.urlopen(config.MODEL_URL, timeout=60) as resp,
+            open(tmp_path, "wb") as fh,
+        ):
             shutil.copyfileobj(resp, fh)
 
 

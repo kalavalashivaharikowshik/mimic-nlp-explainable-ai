@@ -67,7 +67,7 @@ def contribution_chart(
 
     span = max((abs(v) for v in values), default=0) or 1e-6
     ax.set_xlim(-span * 1.35, span * 1.35)
-    for bar, v in zip(bars, values):
+    for bar, v in zip(bars, values, strict=False):
         offset = span * 0.03
         x = v + offset if v >= 0 else v - offset
         ax.text(

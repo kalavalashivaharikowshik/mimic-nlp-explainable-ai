@@ -15,7 +15,7 @@ readable by clinicians; scaling happens inside the prediction function.
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 import shap
@@ -59,7 +59,10 @@ def format_value(name: str, value: float) -> str:
 
 
 def feature_display_labels(raw: np.ndarray) -> list[str]:
-    return [f"{FEATURE_LABELS[n]} = {format_value(n, v)}" for n, v in zip(FEATURE_NAMES, raw)]
+    return [
+        f"{FEATURE_LABELS[n]} = {format_value(n, v)}"
+        for n, v in zip(FEATURE_NAMES, raw, strict=False)
+    ]
 
 
 # -----------------------------
@@ -89,7 +92,7 @@ class ShapExplainer:
         )
         return {
             "base_value": base_value,
-            "values": {name: float(v) for name, v in zip(FEATURE_NAMES, values)},
+            "values": {name: float(v) for name, v in zip(FEATURE_NAMES, values, strict=False)},
             "plot": plot,
         }
 

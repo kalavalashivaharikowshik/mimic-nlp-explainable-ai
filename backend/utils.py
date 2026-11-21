@@ -32,7 +32,7 @@ def validate_features(features) -> list[str]:
         return [f"expected {N_FEATURES} features, got {len(features)}"]
 
     errors: list[str] = []
-    for feat, value in zip(FEATURES, features):
+    for feat, value in zip(FEATURES, features, strict=False):
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             errors.append(f"{feat.label} must be a number")
             continue
@@ -43,9 +43,7 @@ def validate_features(features) -> list[str]:
             errors.append("Gender must be 0 (male) or 1 (female)")
             continue
         if not feat.min <= value <= feat.max:
-            errors.append(
-                f"{feat.label} must be between {feat.min:g} and {feat.max:g} {feat.unit}"
-            )
+            errors.append(f"{feat.label} must be between {feat.min:g} and {feat.max:g} {feat.unit}")
 
     if not errors:
         sbp, dbp = features[3], features[4]

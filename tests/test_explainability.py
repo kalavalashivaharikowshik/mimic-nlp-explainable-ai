@@ -42,14 +42,30 @@ def test_top_features_ranked_by_absolute_shap(background):
     raw = np.array(CRITICAL, dtype=float)
     values = ShapExplainer(background).explain(toy_predict, raw)["values"]
     top = top_features(raw, values, k=3)
-    assert [t["name"] for t in top] == sorted(values, key=lambda n: abs(values[n]), reverse=True)[:3]
+    assert [t["name"] for t in top] == sorted(values, key=lambda n: abs(values[n]), reverse=True)[
+        :3
+    ]
     assert {t["name"] for t in top} == {"age", "creatinine", "spo2"}
     assert all(t["direction"] == "increases risk" for t in top)
 
 
 def test_top_features_no_effect_label():
     raw = np.array(STABLE, dtype=float)
-    values = dict.fromkeys(["age", "gender", "heart_rate", "sbp", "dbp", "mbp", "spo2", "creatinine", "glucose", "hemoglobin"], 0.0)
+    values = dict.fromkeys(
+        [
+            "age",
+            "gender",
+            "heart_rate",
+            "sbp",
+            "dbp",
+            "mbp",
+            "spo2",
+            "creatinine",
+            "glucose",
+            "hemoglobin",
+        ],
+        0.0,
+    )
     assert {t["direction"] for t in top_features(raw, values)} == {"no effect"}
 
 
@@ -62,7 +78,11 @@ def test_lime_uses_raw_units_and_is_deterministic(background):
     rules = " ".join(r1["weights"])
     assert "Creatinine" in rules and "SpO2" in rules
     # Raw clinical thresholds, not z-scores: some rule threshold must be > 10
-    numbers = [float(t) for t in rules.replace("<", " ").replace(">", " ").replace("=", " ").split() if t.replace(".", "", 1).isdigit()]
+    numbers = [
+        float(t)
+        for t in rules.replace("<", " ").replace(">", " ").replace("=", " ").split()
+        if t.replace(".", "", 1).isdigit()
+    ]
     assert any(n > 10 for n in numbers)
     assert base64.b64decode(r1["plot"])[:4] == PNG_MAGIC
 
@@ -74,7 +94,11 @@ def test_predict_fn_matches_full_forward(artifacts):
     with torch.no_grad():
         emb, _ = model.encode_text(enc["input_ids"], enc["attention_mask"])
         expected = torch.sigmoid(
-            model(enc["input_ids"], enc["attention_mask"], torch.tensor(scaler.transform([STABLE]), dtype=torch.float32))
+            model(
+                enc["input_ids"],
+                enc["attention_mask"],
+                torch.tensor(scaler.transform([STABLE]), dtype=torch.float32),
+            )
         ).item()
     fn = make_predict_fn(model, scaler, emb, torch.device("cpu"))
     assert fn(np.array(STABLE))[0] == pytest.approx(expected, rel=1e-5)
