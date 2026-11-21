@@ -1,26 +1,13 @@
-# Runtime dependencies for the FastAPI backend.
+# Runtime dependencies of the web server (ONNX Runtime - no PyTorch).
+# Small enough for free hosting tiers with 512 MB RAM.
 # Tested with Python 3.10 - 3.13.
-#
-# CPU-only PyTorch (much smaller download) can be installed with:
-#   pip install -r backend/requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
 # --- Web API ---
 fastapi==0.115.14
-uvicorn[standard]==0.32.1
+uvicorn==0.32.1
 pydantic==2.14.4
 
-# --- Deep learning / NLP ---
-torch==2.5.1
-transformers==4.46.3
-
-# --- Numerics ---
+# --- Inference ---
+onnxruntime==1.22.1
+tokenizers==0.20.3
 numpy==2.2.6
-scikit-learn==1.6.1
-
-# --- Explainability ---
-shap==0.47.2
-lime==0.2.0.1
-matplotlib==3.10.9
-
-# --- Model download ---
-gdown==5.2.0

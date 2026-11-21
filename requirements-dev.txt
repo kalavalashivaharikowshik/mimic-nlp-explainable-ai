@@ -1,7 +1,8 @@
 # Development and test dependencies
--r backend/requirements.txt
-pandas==2.2.3
+-r requirements-ml.txt
 
 pytest==8.3.4
 httpx==0.28.1
 ruff==0.8.4
+# only used to cross-check our numpy SHAP against the reference implementation
+shap==0.47.2

@@ -1,0 +1,11 @@
+# Training and ONNX export (needs PyTorch). Not needed to run the web server.
+# CPU-only PyTorch:
+#   pip install -r requirements-ml.txt --extra-index-url https://download.pytorch.org/whl/cpu
+-r backend/requirements.txt
+
+torch==2.5.1
+transformers==4.46.3
+onnx==1.18.0
+scikit-learn==1.6.1
+pandas==2.2.3
+gdown==5.2.0
