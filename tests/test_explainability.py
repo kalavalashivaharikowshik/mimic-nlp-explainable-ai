@@ -121,6 +121,9 @@ def test_int8_quantized_encoder_stays_close(tmp_path):
     q_arts, _ = make_onnx_artifacts(tmp_path, quantize=True)
     assert q_arts.manifest["default_encoder"] == "encoder.int8.onnx"
     assert q_arts.manifest["parity_max_abs_diff"]["encoder.int8.onnx"] < 0.02
+    report = q_arts.manifest["quantization"]
+    assert report["n_notes"] == 120 and report["mean_abs_diff"] < 0.02
+    assert report["float32_nodes"] == 2  # one FFN output projection per layer (2-layer test model)
 
 
 # ---------- attention key terms ----------

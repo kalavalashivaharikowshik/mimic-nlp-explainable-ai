@@ -3,7 +3,9 @@
 Output folder (default ``dist/onnx``):
 
     encoder.onnx        BioBERT -> [CLS] embedding + [CLS] attention (float32)
-    encoder.int8.onnx   same, int8 dynamic quantization (~4x smaller, used by default)
+    encoder.int8.onnx   mixed precision: int8 dynamic quantization, except the 12
+                        feed-forward output projections which stay float32
+                        (~2.2x smaller, used by default)
     head.npz            fusion head weights for backend/fusion.py
     tokenizer.json      fast tokenizer for the `tokenizers` library
     manifest.json       versions, settings and SHA-256 of every file
@@ -21,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -42,6 +45,54 @@ PARITY_TEXTS = [
     "78 y/o with septic shock on norepinephrine, intubated overnight for hypoxic respiratory failure",
     "",
 ]
+
+# Synthetic clinical phrases (no patient data) used to measure how much
+# quantization changes the predicted probabilities.
+EVAL_PHRASES = [
+    "patient is stable",
+    "vitals within normal range",
+    "no signs of infection",
+    "tolerating diet",
+    "ambulating independently",
+    "plan transfer to floor",
+    "afebrile overnight",
+    "pain well controlled",
+    "septic shock",
+    "started on norepinephrine",
+    "vasopressin added",
+    "intubated for hypoxic respiratory failure",
+    "acute kidney injury",
+    "rising creatinine",
+    "oliguric",
+    "lactate elevated",
+    "dnr/dni per family",
+    "comfort measures discussed",
+    "gi bleed",
+    "transfused 2 units prbc",
+    "altered mental status",
+    "pneumonia on ct",
+    "chf exacerbation",
+    "copd exacerbation",
+    "atrial fibrillation with rvr",
+    "s/p cabg",
+    "post-op day 1",
+    "extubated this morning",
+    "weaning sedation",
+    "on bipap",
+    "blood cultures pending",
+    "broad spectrum antibiotics",
+    "metastatic cancer",
+    "liver cirrhosis",
+    "hepatic encephalopathy",
+    "dka on insulin drip",
+    "stroke with left sided weakness",
+    "family meeting held",
+]
+
+# BERT's feed-forward output projections (3072 -> 768) see large activation
+# outliers; quantizing their inputs to int8 caused most of the error (max
+# probability change 0.18 -> 0.055 when they are kept in float32).
+FLOAT32_NODE_PATTERN = re.compile(r"/layer\.\d+/output/dense/MatMul$")
 
 
 class EncoderForExport(nn.Module):
@@ -85,10 +136,73 @@ def export_encoder(model: HybridModel, path: Path, tokenizer) -> None:
     model.eval()
 
 
-def quantize_encoder(src: Path, dst: Path) -> None:
+def quantize_encoder(src: Path, dst: Path) -> list[str]:
+    """Mixed-precision int8: everything except the sensitive FFN output MatMuls."""
+    import onnx
     from onnxruntime.quantization import QuantType, quantize_dynamic
 
-    quantize_dynamic(str(src), str(dst), weight_type=QuantType.QInt8)
+    graph = onnx.load(str(src), load_external_data=False).graph
+    keep_float = [
+        n.name for n in graph.node if n.op_type == "MatMul" and FLOAT32_NODE_PATTERN.search(n.name)
+    ]
+    quantize_dynamic(str(src), str(dst), weight_type=QuantType.QInt8, nodes_to_exclude=keep_float)
+    return keep_float
+
+
+def evaluation_notes(n: int = 120, seed: int = 0) -> list[str]:
+    rng = np.random.default_rng(seed)
+    return [
+        ". ".join(rng.choice(EVAL_PHRASES, size=int(rng.integers(1, 12)), replace=False)) + "."
+        for _ in range(n)
+    ]
+
+
+def quantization_report(
+    out_dir: Path, encoder_file: str, n_struct: int, threshold: float = config.THRESHOLD
+) -> dict:
+    """Compare an encoder with encoder.onnx on synthetic notes + synthetic vitals."""
+    import onnxruntime as ort
+    from tokenizers import Tokenizer
+
+    from backend.background import make_background
+    from backend.scaler import JsonStandardScaler
+    from backend.utils import clean_text, clip_features
+
+    fast = Tokenizer.from_file(str(out_dir / "tokenizer.json"))
+    fast.enable_truncation(config.MAX_LENGTH)
+    head = FusionHead.load(out_dir / "head.npz")
+    notes = evaluation_notes()
+    if n_struct == len(config.FEATURE_NAMES):
+        x = JsonStandardScaler.load(config.SCALER_PATH).transform(
+            clip_features(make_background(len(notes), seed=7))
+        )
+    else:
+        x = np.random.default_rng(7).normal(size=(len(notes), n_struct))
+
+    def probs(name: str) -> np.ndarray:
+        session = ort.InferenceSession(str(out_dir / name), providers=["CPUExecutionProvider"])
+        out = []
+        for note, row in zip(notes, x, strict=True):
+            e = fast.encode(clean_text(note))
+            emb, _ = session.run(
+                None,
+                {"input_ids": np.array([e.ids]), "attention_mask": np.array([e.attention_mask])},
+            )
+            out.append(head.proba(head.text_part(emb[0]), row[None])[0])
+        return np.array(out)
+
+    ref, got = probs("encoder.onnx"), probs(encoder_file)
+    diff = np.abs(got - ref)
+    flips = (got >= threshold) != (ref >= threshold)
+    return {
+        "n_notes": len(notes),
+        "max_abs_diff": round(float(diff.max()), 5),
+        "mean_abs_diff": round(float(diff.mean()), 5),
+        "label_flips": int(flips.sum()),
+        "max_flip_distance_from_threshold": round(float(np.abs(ref[flips] - threshold).max()), 5)
+        if flips.any()
+        else 0.0,
+    }
 
 
 def export_head(model: HybridModel, path: Path) -> None:
@@ -151,8 +265,9 @@ def export_all(
     export_encoder(model, out_dir / "encoder.onnx", tokenizer)
     files = ["encoder.onnx", "head.npz", "tokenizer.json"]
     default_encoder = "encoder.onnx"
+    float32_nodes: list[str] = []
     if quantize:
-        quantize_encoder(out_dir / "encoder.onnx", out_dir / "encoder.int8.onnx")
+        float32_nodes = quantize_encoder(out_dir / "encoder.onnx", out_dir / "encoder.int8.onnx")
         files.append("encoder.int8.onnx")
         default_encoder = "encoder.int8.onnx"
 
@@ -168,6 +283,24 @@ def export_all(
             f"float32 ONNX export does not match PyTorch (diff {parity['encoder.onnx']})"
         )
 
+    quantization = None
+    if quantize:
+        quantization = quantization_report(
+            out_dir, "encoder.int8.onnx", int(model.struct_net[0].in_features)
+        )
+        quantization["float32_nodes"] = len(float32_nodes)
+        logger.info(
+            "Quantization vs float32 on %d synthetic notes: %s",
+            quantization["n_notes"],
+            quantization,
+        )
+        # Labels may only flip for patients that sit right at the threshold.
+        if (
+            quantization["mean_abs_diff"] > 0.02
+            or quantization["max_flip_distance_from_threshold"] > 0.05
+        ):
+            raise RuntimeError(f"int8 encoder is not accurate enough: {quantization}")
+
     manifest = {
         "format_version": FORMAT_VERSION,
         "created": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -179,6 +312,7 @@ def export_all(
         "default_encoder": default_encoder,
         "source_weights_sha256": source_sha256,
         "parity_max_abs_diff": parity,
+        "quantization": quantization,
         "files": {
             name: {"sha256": sha256_of(out_dir / name), "bytes": (out_dir / name).stat().st_size}
             for name in files
