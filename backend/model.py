@@ -35,7 +35,9 @@ class HybridModel(nn.Module):
         super().__init__()
 
         if pretrained:
-            self.text_model = AutoModel.from_pretrained(TEXT_MODEL_NAME, attn_implementation="eager")
+            self.text_model = AutoModel.from_pretrained(
+                TEXT_MODEL_NAME, attn_implementation="eager"
+            )
         else:
             if text_config is None:
                 text_config = AutoConfig.from_pretrained(TEXT_MODEL_NAME)

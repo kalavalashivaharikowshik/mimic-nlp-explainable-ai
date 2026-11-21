@@ -54,15 +54,30 @@ def vital_flags(raw: np.ndarray) -> list[str]:
 # (regex, message). Patterns are matched on lower-cased text.
 NOTE_PATTERNS: list[tuple[str, str]] = [
     (r"\bseptic shock\b|\bsepsis\b|\bseptic\b", "Sepsis mentioned in note"),
-    (r"\bintubat\w*|\bmechanical(ly)? ventilat\w*|\bventilator\b|\bvent\b", "Mechanical ventilation mentioned"),
-    (r"\bvasopressors?\b|\bpressors?\b|\bnorepinephrine\b|\blevophed\b|\bvasopressin\b", "Vasopressor support mentioned"),
+    (
+        r"\bintubat\w*|\bmechanical(ly)? ventilat\w*|\bventilator\b|\bvent\b",
+        "Mechanical ventilation mentioned",
+    ),
+    (
+        r"\bvasopressors?\b|\bpressors?\b|\bnorepinephrine\b|\blevophed\b|\bvasopressin\b",
+        "Vasopressor support mentioned",
+    ),
     (r"\bcardiac arrest\b|\bcode blue\b|\bcpr\b", "Cardiac arrest / CPR mentioned"),
-    (r"\bdnr\b|\bdni\b|\bcomfort care\b|\bcmo\b|\bhospice\b", "Limitation of care / comfort care mentioned"),
+    (
+        r"\bdnr\b|\bdni\b|\bcomfort care\b|\bcmo\b|\bhospice\b",
+        "Limitation of care / comfort care mentioned",
+    ),
     (r"\bhypotens\w*", "Hypotension mentioned in note"),
     (r"\bhypoxi\w*|\brespiratory failure\b|\bards\b", "Hypoxia / respiratory failure mentioned"),
-    (r"\bacute kidney injury\b|\baki\b|\brenal failure\b|\bdialysis\b", "Kidney injury / dialysis mentioned"),
+    (
+        r"\bacute kidney injury\b|\baki\b|\brenal failure\b|\bdialysis\b",
+        "Kidney injury / dialysis mentioned",
+    ),
     (r"\bhemorrhag\w*|\bhaemorrhag\w*|\bbleed\w*", "Bleeding mentioned in note"),
-    (r"\bunresponsive\b|\baltered mental status\b|\bobtunded\b|\bcoma\b", "Altered consciousness mentioned"),
+    (
+        r"\bunresponsive\b|\baltered mental status\b|\bobtunded\b|\bcoma\b",
+        "Altered consciousness mentioned",
+    ),
 ]
 
 NEGATION_CUES = re.compile(
