@@ -1,4 +1,4 @@
 {
-  "text": "Patient has sepsis and low blood pressure",
-  "features": [65, 1, 90, 120, 60, 70, 95, 1.2, 110, 13]
+  "text": "78 y/o admitted with septic shock from pneumonia. Hypotensive despite fluids, started on norepinephrine. Intubated overnight for hypoxic respiratory failure. Acute kidney injury with rising creatinine.",
+  "features": [78, 1, 122, 84, 46, 58, 87, 3.1, 248, 8.2]
 }
