@@ -19,17 +19,20 @@ jobs:
 
       - name: Start container and check that the web server comes up
         run: |
-          docker run -d --name app -p 7860:7860 -e LOAD_MODEL_ON_STARTUP=false mimic-nlp:ci
+          docker run -d --name app -p 8000:8000 --memory=512m -e LOAD_MODEL_ON_STARTUP=false mimic-nlp:ci
           for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:7860/health; then break; fi
+            if curl -fsS http://127.0.0.1:8000/health; then break; fi
             sleep 2
           done
-          curl -fsS http://127.0.0.1:7860/health | grep '"status":"ok"'
-          curl -fsS http://127.0.0.1:7860/ | grep -q "ICU Mortality Prediction"
-          curl -fsS http://127.0.0.1:7860/frontend/script.js > /dev/null
-          status=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:7860/predict \
+          curl -fsS http://127.0.0.1:8000/health | grep '"status":"ok"'
+          curl -fsS http://127.0.0.1:8000/ | grep -q "ICU Mortality Prediction"
+          curl -fsS http://127.0.0.1:8000/frontend/script.js > /dev/null
+          status=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8000/predict \
             -H 'Content-Type: application/json' -d '{"text":"x","features":[1,2]}')
           test "$status" = "422"
+
+      - name: Image size
+        run: docker image ls mimic-nlp:ci
 
       - name: Container logs
         if: always()
