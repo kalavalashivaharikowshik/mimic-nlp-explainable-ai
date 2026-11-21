@@ -71,5 +71,11 @@ class FusionHead:
         h = _relu(s @ self.c1_struct.T + text_part)
         return (h @ self.c2.T + self.c2_b).reshape(-1)
 
-    def proba(self, text_part: np.ndarray, scaled: np.ndarray) -> np.ndarray:
-        return _sigmoid(self.logits(text_part, scaled).astype(np.float64))
+    def proba(self, text_part: np.ndarray, scaled: np.ndarray, chunk: int = 8192) -> np.ndarray:
+        """Probabilities, evaluated in chunks to keep peak memory low."""
+        x = np.atleast_2d(scaled)
+        out = np.empty(len(x), dtype=np.float64)
+        for start in range(0, len(x), chunk):
+            stop = start + chunk
+            out[start:stop] = _sigmoid(self.logits(text_part, x[start:stop]).astype(np.float64))
+        return out

@@ -85,6 +85,10 @@ def load_artifacts(
 
     options = ort.SessionOptions()
     options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    if config.ORT_LOW_MEMORY:
+        options.enable_cpu_mem_arena = False
+        options.enable_mem_pattern = False
+        options.add_session_config_entry("session.disable_prepacking", "1")
     if config.ORT_THREADS > 0:
         options.intra_op_num_threads = config.ORT_THREADS
         options.inter_op_num_threads = 1

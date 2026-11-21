@@ -54,6 +54,10 @@ ONNX_ENCODER = os.getenv("ONNX_ENCODER", "")
 # ONNX Runtime threads (0 = let ONNX Runtime decide).
 ORT_THREADS = _env_int("ORT_THREADS", 0)
 
+# Low-memory mode: no weight pre-packing, no memory arena. Uses ~100 MB less
+# RAM for ~25 % slower inference - needed for 512 MB free hosting tiers.
+ORT_LOW_MEMORY = _env_bool("ORT_LOW_MEMORY", True)
+
 # Original PyTorch weights - only needed for training / ONNX export.
 MODEL_PATH = Path(os.getenv("MODEL_PATH", BACKEND_DIR / "models" / "hybrid_model.pth"))
 MODEL_URL = os.getenv(
