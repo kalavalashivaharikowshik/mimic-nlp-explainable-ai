@@ -1,51 +1,46 @@
-"""SHAP and LIME explanations for the structured (vitals / labs) features.
+"""SHAP and LIME for the structured (vitals / labs) features, in pure numpy.
 
-Performance fix
----------------
-The clinical note is identical for every perturbed sample SHAP and LIME
-create, so its BioBERT embedding is computed ONCE per request and only the
-small fusion head is re-evaluated. The old code re-ran BioBERT for every
-sample (600 SHAP + 5,000 LIME forward passes, LIME in a single batch that
-needed several GB of memory), which took minutes on CPU or crashed with
-out-of-memory errors.
+No ``shap`` / ``lime`` / ``scikit-learn`` dependency is needed at runtime, which
+keeps the server small enough for free hosting (512 MB RAM).
 
-Explanations work in raw clinical units (mmHg, mg/dL, ...) so the charts are
-readable by clinicians; scaling happens inside the prediction function.
+* SHAP: with only 10 features, the exact (interventional) Shapley values can
+  be computed by evaluating all 2^10 = 1,024 feature coalitions against a
+  reference cohort. Values add up exactly to ``prediction - base_value``.
+* LIME: the standard tabular recipe - quartile discretisation, perturbations
+  drawn from the reference cohort, exponential kernel, weighted ridge
+  regression - with a fixed seed so results are reproducible.
+
+The clinical note is held fixed: its BioBERT embedding is computed once per
+request and only the tiny fusion head is re-evaluated for every sample.
+Explanations work in raw clinical units (mmHg, mg/dL, ...).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
+from math import factorial
 
 import numpy as np
-import shap
-import torch
-from lime.lime_tabular import LimeTabularExplainer
 
-from .config import (
-    FEATURE_LABELS,
-    FEATURE_NAMES,
-    FEATURES,
-    LIME_NUM_SAMPLES,
-    RANDOM_SEED,
-    SHAP_NSAMPLES,
-)
-from .plots import contribution_chart
+from .config import FEATURE_LABELS, FEATURE_NAMES, FEATURES, LIME_NUM_SAMPLES, RANDOM_SEED
+from .fusion import FusionHead
+from .scaler import JsonStandardScaler
 from .utils import clip_features
 
 PredictFn = Callable[[np.ndarray], np.ndarray]
+N = len(FEATURE_NAMES)
+GENDER_INDEX = FEATURE_NAMES.index("gender")
 
 
-def make_predict_fn(model, scaler, text_emb: torch.Tensor, device) -> PredictFn:
+def make_predict_fn(
+    head: FusionHead, scaler: JsonStandardScaler, text_emb: np.ndarray
+) -> PredictFn:
     """Return f(raw_features[n, 10]) -> mortality probability[n] for one note."""
+    text_part = head.text_part(text_emb)
 
     def predict_proba(raw: np.ndarray) -> np.ndarray:
         raw = np.atleast_2d(np.asarray(raw, dtype=np.float64))
-        scaled = scaler.transform(clip_features(raw))
-        structured = torch.tensor(scaled, dtype=torch.float32, device=device)
-        with torch.no_grad():
-            logits = model.head(text_emb, structured).squeeze(-1)
-        return torch.sigmoid(logits).cpu().numpy().astype(np.float64)
+        return head.proba(text_part, scaler.transform(clip_features(raw)))
 
     return predict_proba
 
@@ -58,92 +53,104 @@ def format_value(name: str, value: float) -> str:
     return f"{value:.0f}"
 
 
-def feature_display_labels(raw: np.ndarray) -> list[str]:
-    return [
-        f"{FEATURE_LABELS[n]} = {format_value(n, v)}"
-        for n, v in zip(FEATURE_NAMES, raw, strict=False)
-    ]
-
-
 # -----------------------------
-# SHAP
+# SHAP (exact)
 # -----------------------------
 class ShapExplainer:
-    """Kernel SHAP over the 10 structured features (text held fixed)."""
-
-    def __init__(self, background: np.ndarray, n_clusters: int = 20):
-        self.background = shap.kmeans(background, n_clusters)
+    def __init__(self, background: np.ndarray, n_reference: int = 50):
+        self.reference = np.asarray(background, dtype=np.float64)[:n_reference]
+        self.codes = np.arange(2**N)
+        self.masks = ((self.codes[:, None] >> np.arange(N)) & 1).astype(bool)  # (1024, 10)
+        self.sizes = self.masks.sum(axis=1)
+        # Shapley weight |S|! (N - |S| - 1)! / N! for coalitions S not containing i
+        self.weights = np.array(
+            [
+                factorial(s) * factorial(N - s - 1) / factorial(N) if s < N else 0.0
+                for s in range(N + 1)
+            ]
+        )
 
     def explain(self, predict_fn: PredictFn, raw: np.ndarray) -> dict:
-        explainer = shap.KernelExplainer(predict_fn, self.background)
-        # 2^10 = 1024 coalitions: with nsamples >= 1022 Kernel SHAP enumerates
-        # them all, so the result is exact and deterministic (the old
-        # nsamples=20 produced noisy values that changed on every request).
-        values = np.asarray(
-            explainer.shap_values(raw.reshape(1, -1), nsamples=SHAP_NSAMPLES, silent=True)
-        ).reshape(-1)
-        base_value = float(np.asarray(explainer.expected_value).reshape(-1)[0])
+        raw = np.asarray(raw, dtype=np.float64)
+        ref = self.reference
+        # rows[c, r] = patient values where coalition c is "on", reference row r elsewhere
+        rows = np.where(self.masks[:, None, :], raw[None, None, :], ref[None, :, :])
+        value = predict_fn(rows.reshape(-1, N)).reshape(len(self.masks), len(ref)).mean(axis=1)
 
-        plot = contribution_chart(
-            feature_display_labels(raw),
-            values.tolist(),
-            title="SHAP: what moved this patient's risk",
-            xlabel="Change in predicted mortality probability",
-        )
+        phi = np.zeros(N)
+        for i in range(N):
+            s = self.codes[~self.masks[:, i]]
+            phi[i] = np.sum(self.weights[self.sizes[s]] * (value[s | (1 << i)] - value[s]))
+
         return {
-            "base_value": base_value,
-            "values": {name: float(v) for name, v in zip(FEATURE_NAMES, values, strict=False)},
-            "plot": plot,
+            "base_value": float(value[0]),  # expected prediction over the reference cohort
+            "values": {name: float(v) for name, v in zip(FEATURE_NAMES, phi, strict=True)},
         }
 
 
 # -----------------------------
 # LIME
 # -----------------------------
-GENDER_INDEX = FEATURE_NAMES.index("gender")
-
-
 class LimeExplainer:
-    """LIME on raw clinical units, deterministic for a given input."""
+    def __init__(
+        self, background: np.ndarray, num_samples: int = LIME_NUM_SAMPLES, seed: int = RANDOM_SEED
+    ):
+        self.background = np.asarray(background, dtype=np.float64)
+        self.num_samples = num_samples
+        self.seed = seed
+        self.edges = [np.percentile(self.background[:, j], [25, 50, 75]) for j in range(N)]
 
-    def __init__(self, background: np.ndarray):
-        self.background = background
+    def _bins(self, x: np.ndarray) -> np.ndarray:
+        x = np.atleast_2d(x)
+        out = np.empty(x.shape, dtype=int)
+        for j in range(N):
+            if j == GENDER_INDEX:
+                out[:, j] = np.round(x[:, j]).astype(int)
+            else:
+                out[:, j] = np.searchsorted(self.edges[j], x[:, j], side="left")
+        return out
+
+    def _rule(self, j: int, b: int) -> str:
+        label = FEATURE_LABELS[FEATURE_NAMES[j]]
+        if j == GENDER_INDEX:
+            return f"{label} = {'female' if b == 1 else 'male'}"
+        q = self.edges[j]
+        if b == 0:
+            return f"{label} <= {q[0]:.2f}"
+        if b == len(q):
+            return f"{label} > {q[-1]:.2f}"
+        return f"{q[b - 1]:.2f} < {label} <= {q[b]:.2f}"
 
     def explain(self, predict_fn: PredictFn, raw: np.ndarray) -> dict:
-        # A fresh explainer with a fixed seed per request makes the result
-        # reproducible (a shared RandomState would drift between requests).
-        explainer = LimeTabularExplainer(
-            self.background,
-            feature_names=[FEATURE_LABELS[n] for n in FEATURE_NAMES],
-            class_names=["Survives", "Dies"],
-            categorical_features=[GENDER_INDEX],
-            categorical_names={GENDER_INDEX: ["male", "female"]},
-            discretize_continuous=True,
-            mode="classification",
-            random_state=RANDOM_SEED,
-        )
+        raw = np.asarray(raw, dtype=np.float64)
+        rng = np.random.default_rng(self.seed)  # fresh generator => reproducible per request
 
-        def classifier_fn(x: np.ndarray) -> np.ndarray:
-            p = predict_fn(x)
-            return np.column_stack([1 - p, p])
+        n = self.num_samples
+        picks = rng.integers(0, len(self.background), size=(n, N))
+        samples = self.background[picks, np.arange(N)]
+        samples[0] = raw
 
-        exp = explainer.explain_instance(
-            raw,
-            classifier_fn,
-            labels=(1,),
-            num_features=len(FEATURE_NAMES),
-            num_samples=LIME_NUM_SAMPLES,
-        )
-        pairs = exp.as_list(label=1)
-        weights = {rule: float(w) for rule, w in pairs}
-        top = pairs[:6]
-        plot = contribution_chart(
-            [rule for rule, _ in top],
-            [w for _, w in top],
-            title="LIME: local rules around this patient",
-            xlabel="Weight towards mortality",
-        )
-        return {"weights": weights, "plot": plot}
+        instance_bins = self._bins(raw)[0]
+        z = (self._bins(samples) == instance_bins).astype(np.float64)
+        y = predict_fn(samples)
+
+        distance = np.sqrt(((1.0 - z) ** 2).sum(axis=1))
+        width = 0.75 * np.sqrt(N)
+        w = np.sqrt(np.exp(-(distance**2) / width**2))
+
+        # Weighted ridge regression (alpha = 1) with intercept
+        wsum = w.sum()
+        z_mean = (w[:, None] * z).sum(axis=0) / wsum
+        y_mean = (w * y).sum() / wsum
+        zc, yc = z - z_mean, y - y_mean
+        coef = np.linalg.solve((zc * w[:, None]).T @ zc + np.eye(N), (zc * w[:, None]).T @ yc)
+
+        ss_res = np.sum(w * (yc - zc @ coef) ** 2)
+        ss_tot = np.sum(w * yc**2) or 1.0
+
+        order = np.argsort(-np.abs(coef))
+        weights = {self._rule(j, int(instance_bins[j])): float(coef[j]) for j in order}
+        return {"weights": weights, "fit_r2": float(1 - ss_res / ss_tot)}
 
 
 def _direction(value: float, eps: float = 1e-6) -> str:
@@ -155,12 +162,7 @@ def _direction(value: float, eps: float = 1e-6) -> str:
 
 
 def top_features(raw: np.ndarray, shap_values: dict[str, float], k: int = 5) -> list[dict]:
-    """The k features with the largest absolute SHAP contribution, largest first.
-
-    The old version ranked features by how far the input was from the training
-    mean (|z-score|) without asking the model at all, which put gender in the
-    top 5 for almost every patient, and listed them in ascending order.
-    """
+    """The k features with the largest absolute SHAP contribution, largest first."""
     ranked = sorted(FEATURES, key=lambda f: abs(shap_values[f.name]), reverse=True)[:k]
     index = {name: i for i, name in enumerate(FEATURE_NAMES)}
     return [
