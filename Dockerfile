@@ -25,7 +25,7 @@ RUN mkdir -p /app/backend/models && chown -R appuser:appuser /app
 
 USER appuser
 
-# Bake the ONNX model (~110 MB, from the GitHub release) into the image, so
+# Bake the ONNX model (~195 MB, from the GitHub release) into the image, so
 # free hosts with an ephemeral disk don't re-download it on every restart.
 # If the release doesn't exist yet, the app downloads it at startup instead.
 ARG PRELOAD_MODEL=1
