@@ -20,8 +20,16 @@ from typing import Callable
 import numpy as np
 import shap
 import torch
+from lime.lime_tabular import LimeTabularExplainer
 
-from .config import FEATURE_LABELS, FEATURE_NAMES, FEATURES, SHAP_NSAMPLES
+from .config import (
+    FEATURE_LABELS,
+    FEATURE_NAMES,
+    FEATURES,
+    LIME_NUM_SAMPLES,
+    RANDOM_SEED,
+    SHAP_NSAMPLES,
+)
 from .plots import contribution_chart
 from .utils import clip_features
 
@@ -86,6 +94,63 @@ class ShapExplainer:
         }
 
 
+# -----------------------------
+# LIME
+# -----------------------------
+GENDER_INDEX = FEATURE_NAMES.index("gender")
+
+
+class LimeExplainer:
+    """LIME on raw clinical units, deterministic for a given input."""
+
+    def __init__(self, background: np.ndarray):
+        self.background = background
+
+    def explain(self, predict_fn: PredictFn, raw: np.ndarray) -> dict:
+        # A fresh explainer with a fixed seed per request makes the result
+        # reproducible (a shared RandomState would drift between requests).
+        explainer = LimeTabularExplainer(
+            self.background,
+            feature_names=[FEATURE_LABELS[n] for n in FEATURE_NAMES],
+            class_names=["Survives", "Dies"],
+            categorical_features=[GENDER_INDEX],
+            categorical_names={GENDER_INDEX: ["male", "female"]},
+            discretize_continuous=True,
+            mode="classification",
+            random_state=RANDOM_SEED,
+        )
+
+        def classifier_fn(x: np.ndarray) -> np.ndarray:
+            p = predict_fn(x)
+            return np.column_stack([1 - p, p])
+
+        exp = explainer.explain_instance(
+            raw,
+            classifier_fn,
+            labels=(1,),
+            num_features=len(FEATURE_NAMES),
+            num_samples=LIME_NUM_SAMPLES,
+        )
+        pairs = exp.as_list(label=1)
+        weights = {rule: float(w) for rule, w in pairs}
+        top = pairs[:6]
+        plot = contribution_chart(
+            [rule for rule, _ in top],
+            [w for _, w in top],
+            title="LIME: local rules around this patient",
+            xlabel="Weight towards mortality",
+        )
+        return {"weights": weights, "plot": plot}
+
+
+def _direction(value: float, eps: float = 1e-6) -> str:
+    if value > eps:
+        return "increases risk"
+    if value < -eps:
+        return "decreases risk"
+    return "no effect"
+
+
 def top_features(raw: np.ndarray, shap_values: dict[str, float], k: int = 5) -> list[dict]:
     """The k features with the largest absolute SHAP contribution, largest first.
 
@@ -101,7 +166,7 @@ def top_features(raw: np.ndarray, shap_values: dict[str, float], k: int = 5) -> 
             "label": f.label,
             "value": float(raw[index[f.name]]),
             "contribution": float(shap_values[f.name]),
-            "direction": "increases risk" if shap_values[f.name] > 0 else "decreases risk",
+            "direction": _direction(shap_values[f.name]),
         }
         for f in ranked
     ]
