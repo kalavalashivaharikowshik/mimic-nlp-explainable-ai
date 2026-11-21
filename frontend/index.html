@@ -3,45 +3,111 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MIMIC NLP | Clinical Intelligence</title>
+    <meta name="description" content="Explainable multimodal ICU mortality risk prediction from clinical notes and vitals (research prototype).">
+    <title>ICU Mortality Prediction | Explainable Clinical NLP</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
     <link rel="stylesheet" href="/frontend/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🩺</text></svg>">
 </head>
 <body>
 
-<div class="container">
+<main class="container">
     <header>
         <h1>ICU Mortality Prediction</h1>
-        <p class="subtitle">Clinical NLP & Physiological Feature Analysis</p>
+        <p class="subtitle">Clinical NLP (BioBERT) + vitals &amp; labs, with attention, SHAP and LIME explanations</p>
+        <p id="modelStatus" class="status-pill status-loading" role="status" aria-live="polite">
+            <span class="dot" aria-hidden="true"></span><span class="status-text">Checking model…</span>
+        </p>
     </header>
 
-    <section class="input-section">
-        <h3>Clinical Context</h3>
-        <label for="text" class="sr-only" style="display:none;">Clinical Observation Notes</label>
-        <textarea id="text" placeholder="Enter detailed patient clinical notes here..." autocomplete="off"></textarea>
-    </section>
+    <aside class="disclaimer" role="note">
+        <strong>Research prototype.</strong> For education and research only. Not a medical device and
+        not validated for clinical decision-making.
+    </aside>
 
-    <section class="input-section">
-        <h3>Patient Vital Signs & Labs</h3>
-        <div class="features">
-            <div class="input-group"><label for="f0">Age</label><input type="number" placeholder="Years" id="f0" autocomplete="off"></div>
-            <div class="input-group"><label for="f1">Gender</label><input type="number" placeholder="0=M, 1=F" id="f1" autocomplete="off"></div>
-            <div class="input-group"><label for="f2">Heart Rate</label><input type="number" placeholder="bpm" id="f2" autocomplete="off"></div>
-            <div class="input-group"><label for="f3">SBP</label><input type="number" placeholder="mmHg" id="f3" autocomplete="off"></div>
-            <div class="input-group"><label for="f4">DBP</label><input type="number" placeholder="mmHg" id="f4" autocomplete="off"></div>
-            <div class="input-group"><label for="f5">MBP</label><input type="number" placeholder="mmHg" id="f5" autocomplete="off"></div>
-            <div class="input-group"><label for="f6">SpO2</label><input type="number" placeholder="%" id="f6" autocomplete="off"></div>
-            
-            <div class="input-group"><label for="f7">Creatinine</label><input type="number" step="0.1" placeholder="mg/dL" id="f7" autocomplete="off"></div>
-            <div class="input-group"><label for="f8">Glucose</label><input type="number" step="1" placeholder="mg/dL" id="f8" autocomplete="off"></div>
-            <div class="input-group"><label for="f9">Hemoglobin</label><input type="number" step="0.1" placeholder="g/dL" id="f9" autocomplete="off"></div>
+    <form id="patientForm" novalidate>
+        <div class="sample-bar">
+            <span class="sample-label">Try an example:</span>
+            <button type="button" class="chip-btn" data-sample="stable">Stable patient</button>
+            <button type="button" class="chip-btn" data-sample="critical">Critical patient</button>
+            <button type="button" class="chip-btn ghost" id="clearBtn">Clear</button>
         </div>
-    </section>
 
-    <button id="predictBtn">Generate Risk Assessment</button>
+        <section class="input-section">
+            <h2 class="section-title"><label for="text">Clinical note</label></h2>
+            <textarea id="text" name="text" maxlength="20000" autocomplete="off"
+                      placeholder="e.g. 78 y/o with septic shock, on norepinephrine, intubated overnight…"
+                      aria-describedby="textHelp"></textarea>
+            <p id="textHelp" class="help"><span id="charCount">0</span> / 20000 characters. Optional, but the model is much more informative with a note.</p>
+        </section>
 
-    <div id="result"></div>
-</div>
+        <section class="input-section">
+            <h2 class="section-title">Vital signs &amp; labs</h2>
+            <div class="features">
+                <div class="input-group">
+                    <label for="f0">Age <span class="unit">years</span></label>
+                    <input type="number" id="f0" name="age" min="0" max="120" step="1" required inputmode="numeric">
+                </div>
+                <div class="input-group">
+                    <label for="f1">Gender</label>
+                    <select id="f1" name="gender" required>
+                        <option value="" disabled selected>Select</option>
+                        <option value="0">Male</option>
+                        <option value="1">Female</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label for="f2">Heart rate <span class="unit">bpm</span></label>
+                    <input type="number" id="f2" name="heart_rate" min="0" max="300" step="1" required inputmode="numeric">
+                </div>
+                <div class="input-group">
+                    <label for="f3">Systolic BP <span class="unit">mmHg</span></label>
+                    <input type="number" id="f3" name="sbp" min="0" max="300" step="1" required inputmode="numeric">
+                </div>
+                <div class="input-group">
+                    <label for="f4">Diastolic BP <span class="unit">mmHg</span></label>
+                    <input type="number" id="f4" name="dbp" min="0" max="250" step="1" required inputmode="numeric">
+                </div>
+                <div class="input-group">
+                    <label for="f5">Mean BP <span class="unit">mmHg</span></label>
+                    <input type="number" id="f5" name="mbp" min="0" max="300" step="1" required inputmode="numeric">
+                    <button type="button" class="link-btn" id="calcMbp" title="Calculate as (SBP + 2 × DBP) / 3">Calculate</button>
+                </div>
+                <div class="input-group">
+                    <label for="f6">SpO2 <span class="unit">%</span></label>
+                    <input type="number" id="f6" name="spo2" min="0" max="100" step="1" required inputmode="numeric">
+                </div>
+                <div class="input-group">
+                    <label for="f7">Creatinine <span class="unit">mg/dL</span></label>
+                    <input type="number" id="f7" name="creatinine" min="0" max="30" step="0.1" required inputmode="decimal">
+                </div>
+                <div class="input-group">
+                    <label for="f8">Glucose <span class="unit">mg/dL</span></label>
+                    <input type="number" id="f8" name="glucose" min="0" max="2000" step="1" required inputmode="numeric">
+                </div>
+                <div class="input-group">
+                    <label for="f9">Hemoglobin <span class="unit">g/dL</span></label>
+                    <input type="number" id="f9" name="hemoglobin" min="0" max="25" step="0.1" required inputmode="decimal">
+                </div>
+            </div>
+        </section>
 
-<script src="/frontend/script.js"></script>
+        <div id="formErrors" class="form-errors" role="alert" hidden></div>
+
+        <button type="submit" id="predictBtn" class="primary-btn">Generate Risk Assessment</button>
+    </form>
+
+    <section id="result" aria-live="polite" aria-busy="false"></section>
+
+    <footer>
+        <a href="/docs" target="_blank" rel="noopener">API docs</a>
+        <span aria-hidden="true">·</span>
+        <a href="https://github.com/kalavalashivaharikowshik/mimic-nlp-explainable-ai" target="_blank" rel="noopener">Source on GitHub</a>
+    </footer>
+</main>
+
+<script src="/frontend/script.js" defer></script>
 </body>
 </html>
