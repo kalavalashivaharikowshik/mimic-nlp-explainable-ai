@@ -8,8 +8,13 @@ venv
 .ruff_cache
 tests
 training
+tools
+deploy
 images
+data
+dist
 backend/models
 *.pth
+*.onnx
+requirements-*.txt
 *.md
-!README.md
