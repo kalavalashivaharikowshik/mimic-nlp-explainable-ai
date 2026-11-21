@@ -82,6 +82,7 @@ class MortalityPredictor:
             "prediction": "HIGH RISK" if prob >= config.THRESHOLD else "LOW RISK",
             "probability": prob,
             "threshold": config.THRESHOLD,
+            "borderline": abs(prob - config.THRESHOLD) < config.BORDERLINE_MARGIN,
             "explanation": {
                 "important_words": [t["word"] for t in terms],
                 "key_terms": terms,

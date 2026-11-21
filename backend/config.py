@@ -78,6 +78,10 @@ MAX_LENGTH = _env_int("MAX_LENGTH", 256)
 # such as in-hospital mortality.
 THRESHOLD = _env_float("THRESHOLD", 0.3)
 
+# Predictions this close to the threshold are flagged as borderline: small
+# changes in the inputs (or int8 model precision) can change the label.
+BORDERLINE_MARGIN = _env_float("BORDERLINE_MARGIN", 0.05)
+
 # The original pipeline lower-cased notes before tokenisation, so the published
 # weights expect lower-cased text (manifest.json takes precedence).
 LOWERCASE_TEXT = _env_bool("LOWERCASE_TEXT", True)

@@ -198,6 +198,10 @@
                 high
                     ? `Classified HIGH RISK because the probability is at or above the ${thr}% decision threshold.`
                     : `Classified LOW RISK because the probability is below the ${thr}% decision threshold.`),
+            data.borderline
+                ? el("p", { class: "borderline", role: "note" },
+                    "⚠ Borderline: the probability is close to the threshold, so small changes in the inputs could change the label. Interpret with extra caution.")
+                : null,
         );
     }
 

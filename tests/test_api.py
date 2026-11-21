@@ -27,6 +27,7 @@ def test_predictor_response_shape(predictor):
     assert 0.0 <= r["probability"] <= 1.0
     assert r["threshold"] == config.THRESHOLD
     assert (r["prediction"] == "HIGH RISK") == (r["probability"] >= config.THRESHOLD)
+    assert r["borderline"] == (abs(r["probability"] - config.THRESHOLD) < config.BORDERLINE_MARGIN)
     assert len(r["explanation"]["top_features"]) == 5
     assert r["shap"]["base_value"] + sum(r["shap"]["values"].values()) == pytest.approx(
         r["probability"], abs=1e-5

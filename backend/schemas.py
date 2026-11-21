@@ -66,6 +66,9 @@ class PredictionResponse(BaseModel):
     prediction: str
     probability: float = Field(description="Predicted probability of in-hospital mortality (0-1).")
     threshold: float
+    borderline: bool = Field(
+        description="True when the probability is within BORDERLINE_MARGIN of the threshold."
+    )
     explanation: Explanation
     clinical_flags: list[ClinicalFlag]
     note_message: str

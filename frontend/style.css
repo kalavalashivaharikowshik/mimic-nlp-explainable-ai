@@ -362,6 +362,17 @@ a:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 8
     color: var(--text-secondary);
 }
 .risk-explain { margin-top: 12px; font-size: 14px; color: var(--text-secondary); }
+.borderline {
+    display: inline-block;
+    margin-top: 14px;
+    padding: 8px 14px;
+    border-radius: var(--radius-sm);
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    color: var(--warn-text);
+    font-size: 13px;
+    font-weight: 600;
+}
 
 .result-grid {
     display: grid;
