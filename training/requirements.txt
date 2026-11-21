@@ -1,0 +1,4 @@
+# Extra dependencies for training (on top of backend/requirements.txt)
+-r ../backend/requirements.txt
+pandas==2.2.3
+pyarrow==18.1.0  # only needed for .parquet input
