@@ -38,33 +38,35 @@ def _env_bool(name: str, default: bool) -> bool:
 # -----------------------------
 TEXT_MODEL_NAME = os.getenv("TEXT_MODEL_NAME", "dmis-lab/biobert-base-cased-v1.1")
 
-MODEL_PATH = Path(os.getenv("MODEL_PATH", BACKEND_DIR / "models" / "hybrid_model.pth"))
+# ONNX Runtime artefacts used by the web server (see tools/export_onnx.py).
+ONNX_DIR = Path(os.getenv("ONNX_DIR", BACKEND_DIR / "models" / "onnx"))
 
-# Where to download the weights from when MODEL_PATH does not exist.
-# MODEL_HF_REPO (a Hugging Face model repo, e.g. "user/mimic-hybrid") is preferred
-# when set because it is faster and more reliable than Google Drive.
+# Where to download them from when ONNX_DIR is empty: a GitHub release created
+# by the "Export ONNX model" workflow. Set to "" to disable downloads.
+MODEL_BASE_URL = os.getenv(
+    "MODEL_BASE_URL",
+    "https://github.com/kalavalashivaharikowshik/mimic-nlp-explainable-ai/releases/download/model-v1",
+)
+
+# "" = use the manifest default (int8). Set to "encoder.onnx" for float32.
+ONNX_ENCODER = os.getenv("ONNX_ENCODER", "")
+
+# ONNX Runtime threads (0 = let ONNX Runtime decide).
+ORT_THREADS = _env_int("ORT_THREADS", 0)
+
+# Original PyTorch weights - only needed for training / ONNX export.
+MODEL_PATH = Path(os.getenv("MODEL_PATH", BACKEND_DIR / "models" / "hybrid_model.pth"))
 MODEL_URL = os.getenv(
     "MODEL_URL",
     "https://drive.google.com/uc?id=1g9yuOIIFgxG-xR4_ri6w6LRpv9OBsvQw",
 )
-MODEL_HF_REPO = os.getenv("MODEL_HF_REPO", "")
-MODEL_HF_FILENAME = os.getenv("MODEL_HF_FILENAME", "hybrid_model.pth")
-
-# Optional SHA-256 of the weights file. When set, a downloaded file that does
-# not match is deleted instead of being loaded.
-MODEL_SHA256 = os.getenv("MODEL_SHA256", "").strip().lower()
-
-# A real BioBERT state dict is ~430 MB. Anything far smaller is a failed
-# download (for example a Google Drive HTML quota page).
-MIN_MODEL_BYTES = _env_int("MIN_MODEL_BYTES", 50 * 1024 * 1024)
 
 SCALER_PATH = Path(os.getenv("SCALER_PATH", BACKEND_DIR / "scaler" / "scaler.json"))
 
 # -----------------------------
 # Inference settings
 # -----------------------------
-# The SAME max length is used for prediction, attention and SHAP/LIME so the
-# explanations describe exactly the input that was scored.
+# Default token limit (the exported manifest.json takes precedence).
 MAX_LENGTH = _env_int("MAX_LENGTH", 256)
 
 # Decision threshold on the predicted mortality probability. A threshold below
@@ -73,14 +75,12 @@ MAX_LENGTH = _env_int("MAX_LENGTH", 256)
 THRESHOLD = _env_float("THRESHOLD", 0.3)
 
 # The original pipeline lower-cased notes before tokenisation, so the published
-# weights expect lower-cased text. Set to "false" only for a model trained on
-# original-case notes.
+# weights expect lower-cased text (manifest.json takes precedence).
 LOWERCASE_TEXT = _env_bool("LOWERCASE_TEXT", True)
 
 MAX_TEXT_CHARS = _env_int("MAX_TEXT_CHARS", 20000)
 
-# Explainability budget (cheap now that BioBERT runs once per request).
-SHAP_NSAMPLES = _env_int("SHAP_NSAMPLES", 1024)
+# LIME perturbation budget (SHAP is exact and needs no budget).
 LIME_NUM_SAMPLES = _env_int("LIME_NUM_SAMPLES", 2000)
 RANDOM_SEED = _env_int("RANDOM_SEED", 42)
 
